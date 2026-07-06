@@ -7,6 +7,7 @@ class User {
   final List<String> languages;
   final List<String> interests;
   final String status;
+  final String? avatarUrl;
 
   User({
     required this.id,
@@ -16,6 +17,7 @@ class User {
     required this.languages,
     required this.interests,
     required this.status,
+    this.avatarUrl,
   });
 
   factory User.fromJson(Map<String, dynamic> j) => User(
@@ -26,6 +28,7 @@ class User {
         languages: List<String>.from(j['languages'] ?? const []),
         interests: List<String>.from(j['interests'] ?? const []),
         status: j['status'] as String? ?? 'active',
+        avatarUrl: j['avatarUrl'] as String?,
       );
 }
 
@@ -36,6 +39,7 @@ class PeerProfile {
   final int age;
   final List<String> interests;
   final List<String> languages;
+  final String? avatarUrl;
 
   PeerProfile({
     required this.id,
@@ -43,6 +47,7 @@ class PeerProfile {
     required this.age,
     required this.interests,
     required this.languages,
+    this.avatarUrl,
   });
 
   factory PeerProfile.fromJson(Map<String, dynamic> j) => PeerProfile(
@@ -51,6 +56,22 @@ class PeerProfile {
         age: j['age'] as int? ?? 0,
         interests: List<String>.from(j['interests'] ?? const []),
         languages: List<String>.from(j['languages'] ?? const []),
+        avatarUrl: j['avatarUrl'] as String?,
+      );
+}
+
+/// İstek kutusundaki bekleyen arkadaşlık isteği.
+class FriendRequest {
+  final int matchId;
+  final PeerProfile from;
+  final int matchedAt;
+
+  FriendRequest({required this.matchId, required this.from, required this.matchedAt});
+
+  factory FriendRequest.fromJson(Map<String, dynamic> j) => FriendRequest(
+        matchId: j['matchId'] as int,
+        from: PeerProfile.fromJson(Map<String, dynamic>.from(j['from'])),
+        matchedAt: j['matchedAt'] as int? ?? 0,
       );
 }
 
@@ -110,6 +131,7 @@ class FriendEntry {
         age: f['age'] as int? ?? 0,
         interests: List<String>.from(f['interests'] ?? const []),
         languages: const [],
+        avatarUrl: f['avatarUrl'] as String?,
       ),
       deleted: f['deleted'] as bool? ?? false,
       lastMessageBody: last?['body'] as String?,

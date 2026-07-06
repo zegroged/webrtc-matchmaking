@@ -7,6 +7,7 @@ import '../config.dart';
 import '../models.dart';
 import '../socket_service.dart';
 import '../theme.dart';
+import '../widgets/user_avatar.dart';
 
 /// Görüntülü görüşme ekranı: WebRTC P2P + sinyalleşme, buzkıran sorusu,
 /// Geç / Bitir / Raporla / Arkadaş Ekle aksiyonları ve görüşme sonu kartı.
@@ -32,11 +33,13 @@ class _CallScreenState extends State<CallScreen> {
 
   bool _micOn = true;
   bool _camOn = true;
-  bool _remoteConnected = false;
+  bool _remoteConnected = false; // karşı taraftan video/ses akışı geldi
+  bool _pcConnected = false;     // P2P bağlantı kuruldu (medya olmasa bile)
   bool _showIcebreaker = true;
   bool _friendRequested = false;
   bool _friendsNow = false;
   bool _mediaError = false;
+  bool _retryingMedia = false;
 
   // WebRTC sinyal senkronizasyonu: PeerConnection hazır olmadan gelen sinyaller
   // ve remoteDescription set edilmeden gelen ICE adayları kaybedilmesin diye
@@ -45,6 +48,7 @@ class _CallScreenState extends State<CallScreen> {
   final List<Map<String, dynamic>> _pendingSignals = [];
   final List<Map<String, dynamic>> _pendingCandidates = [];
   bool _remoteDescSet = false;
+  bool _needsRenegotiation = false; // stable olunca yeni teklif gönderilecek mi
   bool _reportSheetOpen = false;
 
   // Görüşme sonu durumu
@@ -102,6 +106,7 @@ class _CallScreenState extends State<CallScreen> {
           'height': {'ideal': 480},
         },
       });
+      _applyTrackToggles(_localStream!); // kullanıcı izin beklerken toggle'a bastıysa uygula
       _localRenderer.srcObject = _localStream;
     } catch (e) {
       // Kamera/mikrofon reddedildi: görüşme sinyalleşmesi yine kurulur,
@@ -112,7 +117,24 @@ class _CallScreenState extends State<CallScreen> {
     final pc = await createPeerConnection({'iceServers': iceServers});
     _pc = pc;
 
-    _localStream?.getTracks().forEach((t) => pc.addTrack(t, _localStream!));
+    if (_localStream != null) {
+      for (final t in _localStream!.getTracks()) {
+        await pc.addTrack(t, _localStream!);
+      }
+    } else {
+      // Kamera/mikrofon izni yoksa bile SDP'de medya kanalları bulunmalı;
+      // aksi halde teklif boş gider ve iki taraf da "Bağlanıyor..."da kalır.
+      // recvonly transceiver'lar karşı tarafın görüntü/sesini tek yönlü almayı
+      // sağlar.
+      await pc.addTransceiver(
+        kind: RTCRtpMediaType.RTCRtpMediaTypeAudio,
+        init: RTCRtpTransceiverInit(direction: TransceiverDirection.RecvOnly),
+      );
+      await pc.addTransceiver(
+        kind: RTCRtpMediaType.RTCRtpMediaTypeVideo,
+        init: RTCRtpTransceiverInit(direction: TransceiverDirection.RecvOnly),
+      );
+    }
 
     pc.onTrack = (event) {
       if (event.streams.isNotEmpty) {
@@ -126,14 +148,24 @@ class _CallScreenState extends State<CallScreen> {
         'candidate': candidate.toMap(),
       });
     };
+    // Bağlantı kurulduğunda (karşı tarafın kamerası kapalı olsa bile)
+    // "Bağlanıyor..." yerine doğru durumu gösterebilmek için izlenir.
+    pc.onConnectionState = (state) {
+      if (!mounted) return;
+      if (state == RTCPeerConnectionState.RTCPeerConnectionStateConnected) {
+        setState(() => _pcConnected = true);
+      }
+    };
+    pc.onIceConnectionState = (state) {
+      if (!mounted) return;
+      if (state == RTCIceConnectionState.RTCIceConnectionStateConnected ||
+          state == RTCIceConnectionState.RTCIceConnectionStateCompleted) {
+        setState(() => _pcConnected = true);
+      }
+    };
 
     if (widget.match.initiator) {
-      final offer = await pc.createOffer();
-      await pc.setLocalDescription(offer);
-      SocketService.instance.sendSignal(widget.match.matchId, {
-        'type': 'offer',
-        'sdp': offer.sdp,
-      });
+      await _sendOffer(pc);
     }
 
     // PeerConnection hazır olmadan biriken sinyalleri şimdi sırayla işle.
@@ -143,6 +175,31 @@ class _CallScreenState extends State<CallScreen> {
       await _applySignal(pc, data);
     }
     if (mounted) setState(() {});
+  }
+
+  bool get _isInitiator => widget.match.initiator;
+
+  /// Teklif ÜRETİMİ yalnızca başlatan (initiator) tarafta yapılır. Bu, iki
+  /// tarafın aynı anda teklif göndermesinden (glare) doğan kalıcı kilitlenmeleri
+  /// tümden ortadan kaldırır: tek yönlü teklif akışı = çakışma imkânsız.
+  /// Sinyalleşme "stable" değilse teklif ertelenir, cevap gelince tetiklenir.
+  Future<void> _sendOffer(RTCPeerConnection pc) async {
+    if (!_isInitiator) return;
+    if (pc.signalingState !=
+        RTCSignalingState.RTCSignalingStateStable) {
+      _needsRenegotiation = true;
+      return;
+    }
+    try {
+      final offer = await pc.createOffer();
+      await pc.setLocalDescription(offer);
+      SocketService.instance.sendSignal(widget.match.matchId, {
+        'type': 'offer',
+        'sdp': offer.sdp,
+      });
+    } catch (e) {
+      debugPrint('offer üretim hatası: $e');
+    }
   }
 
   Future<void> _onSignal(Map<String, dynamic> payload) async {
@@ -159,6 +216,12 @@ class _CallScreenState extends State<CallScreen> {
 
   Future<void> _applySignal(RTCPeerConnection pc, Map<String, dynamic> data) async {
     try {
+      // Non-initiator izin verince yeniden müzakere isteği gönderir; teklifi
+      // her zaman initiator üretir (glare önleme).
+      if (data['renegotiate'] == true) {
+        await _sendOffer(pc);
+        return;
+      }
       if (data['type'] == 'offer') {
         await pc.setRemoteDescription(
             RTCSessionDescription(data['sdp'] as String, 'offer'));
@@ -171,10 +234,21 @@ class _CallScreenState extends State<CallScreen> {
           'sdp': answer.sdp,
         });
       } else if (data['type'] == 'answer') {
+        // İstenmeyen/çift answer stable state'e çarparsa yok say (initiator-only
+        // akışta tek geçerli answer beklenir).
+        if (pc.signalingState !=
+            RTCSignalingState.RTCSignalingStateHaveLocalOffer) {
+          return;
+        }
         await pc.setRemoteDescription(
             RTCSessionDescription(data['sdp'] as String, 'answer'));
         _remoteDescSet = true;
         await _flushPendingCandidates(pc);
+        // Cevap uygulandı (stable); ertelediğimiz yeniden müzakere varsa şimdi yap.
+        if (_needsRenegotiation) {
+          _needsRenegotiation = false;
+          await _sendOffer(pc);
+        }
       } else if (data['candidate'] != null) {
         final c = Map<String, dynamic>.from(data['candidate']);
         // remoteDescription set edilmeden addCandidate hata verir; tamponla.
@@ -302,6 +376,62 @@ class _CallScreenState extends State<CallScreen> {
       });
     }
     _leaving = false;
+  }
+
+  /// Mikrofon/kamera açık-kapalı durumunu bir stream'in track'lerine uygular.
+  /// Kritik: yeni alınan track'ler varsayılan enabled=true gelir; kullanıcı
+  /// arayüzde "kapalı" seçtiyse gerçekte yayın yapmasınlar (gizlilik).
+  void _applyTrackToggles(MediaStream stream) {
+    for (final t in stream.getAudioTracks()) {
+      t.enabled = _micOn;
+    }
+    for (final t in stream.getVideoTracks()) {
+      t.enabled = _camOn;
+    }
+  }
+
+  /// Kullanıcı izni sonradan verirse: medyayı al, bağlantıya ekle ve yeniden
+  /// müzakere et. Teklif üretimi her zaman initiator'da olduğundan non-initiator
+  /// yalnızca "renegotiate" sinyali gönderir; glare oluşmaz.
+  Future<void> _retryMedia() async {
+    if (_retryingMedia || _localStream != null) return;
+    setState(() => _retryingMedia = true);
+    try {
+      final stream = await navigator.mediaDevices.getUserMedia({
+        'audio': true,
+        'video': {
+          'facingMode': 'user',
+          'width': {'ideal': 640},
+          'height': {'ideal': 480},
+        },
+      });
+      _applyTrackToggles(stream);
+      _localStream = stream;
+      _localRenderer.srcObject = stream;
+      final pc = _pc;
+      if (pc != null) {
+        for (final t in stream.getTracks()) {
+          await pc.addTrack(t, stream);
+        }
+        if (_isInitiator) {
+          await _sendOffer(pc);
+        } else {
+          // Teklifi initiator üretsin diye ona haber ver.
+          SocketService.instance
+              .sendSignal(widget.match.matchId, {'renegotiate': true});
+        }
+      }
+      if (mounted) setState(() => _mediaError = false);
+    } catch (_) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
+          content: Text('İzin alınamadı. Tarayıcı/uygulama ayarlarından kamera ve mikrofona izin verin.'),
+          backgroundColor: Brand.danger,
+        ));
+      }
+    } finally {
+      if (mounted) setState(() => _retryingMedia = false);
+    }
   }
 
   Future<void> _toggleMic() async {
@@ -477,28 +607,26 @@ class _CallScreenState extends State<CallScreen> {
                     child: Column(
                       mainAxisSize: MainAxisSize.min,
                       children: [
-                        CircleAvatar(
+                        UserAvatar(
+                          name: peer.displayName,
+                          avatarUrl: peer.avatarUrl,
                           radius: 40,
-                          backgroundColor: avatarColor(peer.displayName),
-                          child: Text(
-                            peer.displayName.isNotEmpty
-                                ? peer.displayName[0].toUpperCase()
-                                : '?',
-                            style: const TextStyle(
-                                fontSize: 32,
-                                fontWeight: FontWeight.w800,
-                                color: Colors.white),
-                          ),
                         ),
                         const SizedBox(height: 16),
-                        const Text('Bağlanıyor...',
-                            style: TextStyle(color: Brand.textDim)),
-                        const SizedBox(height: 12),
-                        const SizedBox(
-                          width: 20,
-                          height: 20,
-                          child: CircularProgressIndicator(strokeWidth: 2),
+                        Text(
+                          _pcConnected
+                              ? '${peer.displayName} bağlandı — kamerası kapalı görünüyor'
+                              : 'Bağlanıyor...',
+                          style: const TextStyle(color: Brand.textDim),
+                          textAlign: TextAlign.center,
                         ),
+                        const SizedBox(height: 12),
+                        if (!_pcConnected)
+                          const SizedBox(
+                            width: 20,
+                            height: 20,
+                            child: CircularProgressIndicator(strokeWidth: 2),
+                          ),
                       ],
                     ),
                   ),
@@ -615,9 +743,35 @@ class _CallScreenState extends State<CallScreen> {
                     color: Brand.danger.withValues(alpha: 0.85),
                     borderRadius: BorderRadius.circular(12),
                   ),
-                  child: const Text(
-                    'Kamera/mikrofon izni verilmedi. Ayarlardan izin verin.',
-                    style: TextStyle(fontSize: 12, color: Colors.white),
+                  child: Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      const Flexible(
+                        child: Text(
+                          'Kamera/mikrofon izni verilmedi.',
+                          style: TextStyle(fontSize: 12, color: Colors.white),
+                        ),
+                      ),
+                      const SizedBox(width: 8),
+                      GestureDetector(
+                        onTap: _retryingMedia ? null : _retryMedia,
+                        child: Container(
+                          padding: const EdgeInsets.symmetric(
+                              horizontal: 10, vertical: 5),
+                          decoration: BoxDecoration(
+                            color: Colors.white,
+                            borderRadius: BorderRadius.circular(8),
+                          ),
+                          child: Text(
+                            _retryingMedia ? '...' : 'Tekrar dene',
+                            style: const TextStyle(
+                                fontSize: 12,
+                                fontWeight: FontWeight.w700,
+                                color: Brand.danger),
+                          ),
+                        ),
+                      ),
+                    ],
                   ),
                 ),
             ],
@@ -780,17 +934,11 @@ class _CallScreenState extends State<CallScreen> {
               mainAxisAlignment: MainAxisAlignment.center,
               crossAxisAlignment: CrossAxisAlignment.stretch,
               children: [
-                CircleAvatar(
-                  radius: 44,
-                  backgroundColor: avatarColor(peer.displayName),
-                  child: Text(
-                    peer.displayName.isNotEmpty
-                        ? peer.displayName[0].toUpperCase()
-                        : '?',
-                    style: const TextStyle(
-                        fontSize: 36,
-                        fontWeight: FontWeight.w800,
-                        color: Colors.white),
+                Center(
+                  child: UserAvatar(
+                    name: peer.displayName,
+                    avatarUrl: peer.avatarUrl,
+                    radius: 44,
                   ),
                 ),
                 const SizedBox(height: 20),

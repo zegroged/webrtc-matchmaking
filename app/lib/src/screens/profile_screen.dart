@@ -1,9 +1,12 @@
+import 'dart:convert';
 import 'package:flutter/material.dart';
+import 'package:image_picker/image_picker.dart';
 import '../api_client.dart';
 import '../config.dart';
 import '../session.dart';
 import '../socket_service.dart';
 import '../theme.dart';
+import '../widgets/user_avatar.dart';
 import 'onboarding_screen.dart';
 
 /// Profil ve ayarlar: isim/dil/ilgi düzenleme, kilitli doğum tarihi,
@@ -17,6 +20,64 @@ class ProfileScreen extends StatefulWidget {
 
 class _ProfileScreenState extends State<ProfileScreen> {
   bool _busy = false;
+
+  /// Profil fotoğrafı: galeriden seç, 512px'e küçült, base64 olarak yükle.
+  Future<void> _changeAvatar() async {
+    final hasAvatar = Session.instance.user?.avatarUrl != null;
+    final action = await showModalBottomSheet<String>(
+      context: context,
+      builder: (ctx) => SafeArea(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            ListTile(
+              leading: const Icon(Icons.photo_library_rounded, color: Brand.primary),
+              title: const Text('Fotoğraf seç'),
+              onTap: () => Navigator.of(ctx).pop('pick'),
+            ),
+            if (hasAvatar)
+              ListTile(
+                leading: const Icon(Icons.delete_rounded, color: Brand.danger),
+                title: const Text('Fotoğrafı kaldır'),
+                onTap: () => Navigator.of(ctx).pop('remove'),
+              ),
+          ],
+        ),
+      ),
+    );
+    if (action == null || !mounted) return;
+
+    setState(() => _busy = true);
+    try {
+      if (action == 'pick') {
+        final picked = await ImagePicker().pickImage(
+          source: ImageSource.gallery,
+          maxWidth: 512,
+          maxHeight: 512,
+          imageQuality: 80,
+        );
+        if (picked == null) return;
+        final bytes = await picked.readAsBytes();
+        await ApiClient.post('/api/me/avatar', {'imageBase64': base64Encode(bytes)});
+      } else if (action == 'remove') {
+        await ApiClient.delete('/api/me/avatar');
+      }
+      await Session.instance.refreshProfile();
+    } on ApiException catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+            content: Text(e.message), backgroundColor: Brand.danger));
+      }
+    } catch (_) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
+            content: Text('Fotoğraf yüklenemedi. Tekrar deneyin.'),
+            backgroundColor: Brand.danger));
+      }
+    } finally {
+      if (mounted) setState(() => _busy = false);
+    }
+  }
 
   Future<void> _editName() async {
     final user = Session.instance.user!;
@@ -250,23 +311,39 @@ class _ProfileScreenState extends State<ProfileScreen> {
               Center(
                 child: Column(
                   children: [
-                    CircleAvatar(
-                      radius: 44,
-                      backgroundColor: avatarColor(u.displayName),
-                      child: Text(
-                        u.displayName.isNotEmpty
-                            ? u.displayName[0].toUpperCase()
-                            : '?',
-                        style: const TextStyle(
-                            fontSize: 36,
-                            fontWeight: FontWeight.w800,
-                            color: Colors.white),
+                    GestureDetector(
+                      onTap: _busy ? null : _changeAvatar,
+                      child: Stack(
+                        children: [
+                          UserAvatar(
+                            name: u.displayName,
+                            avatarUrl: u.avatarUrl,
+                            radius: 44,
+                          ),
+                          Positioned(
+                            right: 0,
+                            bottom: 0,
+                            child: Container(
+                              padding: const EdgeInsets.all(6),
+                              decoration: BoxDecoration(
+                                color: Brand.primary,
+                                shape: BoxShape.circle,
+                                border: Border.all(color: Brand.bg, width: 2),
+                              ),
+                              child: const Icon(Icons.camera_alt_rounded,
+                                  size: 16, color: Colors.white),
+                            ),
+                          ),
+                        ],
                       ),
                     ),
                     const SizedBox(height: 12),
                     Text('${u.displayName}, ${u.age}',
                         style: const TextStyle(
                             fontSize: 22, fontWeight: FontWeight.w800)),
+                    const SizedBox(height: 4),
+                    const Text('Fotoğrafı değiştirmek için dokun',
+                        style: TextStyle(color: Brand.textDim, fontSize: 12)),
                   ],
                 ),
               ),

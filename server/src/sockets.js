@@ -35,6 +35,7 @@ function peerViewOf(userId) {
     age: ageFromBirthDate(u.birth_date),
     interests: JSON.parse(u.interests),
     languages: JSON.parse(u.languages),
+    avatarUrl: u.avatar_path ? `/avatars/${u.avatar_path}` : null,
   };
 }
 
@@ -306,7 +307,15 @@ function initSockets(io) {
       db.prepare(`UPDATE matches SET ${col} = 1 WHERE id = ?`).run(state.id);
       const peerId = state.a.userId === userId ? state.b.userId : state.a.userId;
       const mutual = !!state.friendReq[peerId];
-      // Tek taraflı istek karşı tarafa GÖSTERİLMEZ (taciz vektörünü kapatır).
+      // Tek taraflı istek görüşme EKRANINDA gösterilmez (baskı oluşturmasın);
+      // karşı taraf isteği Sohbetler'deki istek kutusundan görür ve dilerse
+      // sonradan onaylar.
+      if (!mutual && !isBlockedPair(userId, peerId)) {
+        const peerSock = connectedUsers.get(peerId);
+        if (peerSock) {
+          peerSock.emit('friend:request', { from: peerViewOf(userId), matchId: state.id });
+        }
+      }
       tryCreateFriendship(state);
       ack({ ok: true, mutual });
     });
@@ -400,6 +409,10 @@ function initSockets(io) {
     disconnectUser: (userId) => {
       const sock = connectedUsers.get(userId);
       if (sock) sock.disconnect(true);
+    },
+    emitToUser: (userId, event, payload) => {
+      const sock = connectedUsers.get(userId);
+      if (sock) sock.emit(event, payload);
     },
   };
 }

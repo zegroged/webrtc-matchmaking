@@ -42,6 +42,10 @@ class _HomeShellState extends State<HomeShell> {
       if (_tab != 1 && mounted) setState(() => _unreadTotal++);
     }));
 
+    _subs.add(sock.friendRequest.listen((_) {
+      if (_tab != 1 && mounted) setState(() => _unreadTotal++);
+    }));
+
     _subs.add(sock.suspended.listen((msg) async {
       if (!mounted) return;
       await showDialog(

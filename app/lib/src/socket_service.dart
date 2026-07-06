@@ -18,6 +18,7 @@ class SocketService {
   final _matchEndedCtrl = StreamController<Map<String, dynamic>>.broadcast();
   final _rtcSignalCtrl = StreamController<Map<String, dynamic>>.broadcast();
   final _friendNewCtrl = StreamController<Map<String, dynamic>>.broadcast();
+  final _friendRequestCtrl = StreamController<Map<String, dynamic>>.broadcast();
   final _chatMessageCtrl = StreamController<ChatMessage>.broadcast();
   final _chatReadCtrl = StreamController<Map<String, dynamic>>.broadcast();
   final _friendPresenceCtrl = StreamController<Map<String, dynamic>>.broadcast();
@@ -32,6 +33,7 @@ class SocketService {
   Stream<Map<String, dynamic>> get matchEnded => _matchEndedCtrl.stream;
   Stream<Map<String, dynamic>> get rtcSignal => _rtcSignalCtrl.stream;
   Stream<Map<String, dynamic>> get friendNew => _friendNewCtrl.stream;
+  Stream<Map<String, dynamic>> get friendRequest => _friendRequestCtrl.stream;
   Stream<ChatMessage> get chatMessage => _chatMessageCtrl.stream;
   Stream<Map<String, dynamic>> get chatRead => _chatReadCtrl.stream;
   Stream<Map<String, dynamic>> get friendPresence => _friendPresenceCtrl.stream;
@@ -80,6 +82,9 @@ class SocketService {
     });
     socket.on('friend:new', (data) {
       _friendNewCtrl.add(Map<String, dynamic>.from(data ?? {}));
+    });
+    socket.on('friend:request', (data) {
+      _friendRequestCtrl.add(Map<String, dynamic>.from(data ?? {}));
     });
     socket.on('chat:message', (data) {
       try {

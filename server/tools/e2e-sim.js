@@ -186,6 +186,55 @@ async function main() {
     const evidenceFiles = fs.readdirSync(path.join(DATA_DIR, 'evidence'));
     check('kanıt karesi kaydedildi', evidenceFiles.length === 1);
 
+    console.log('\n[6.5] Arkadaşlık isteği kutusu');
+    const deniz = await registerUser('05550000005', 'Deniz');
+    const sockD = connect(deniz.token);
+    await waitFor(sockD, 'connect');
+    const m3M = waitFor(sockM, 'match:found', 40000);
+    const m3D = waitFor(sockD, 'match:found', 40000);
+    const reqEvt = waitFor(sockM, 'friend:request', 40000);
+    await emitAck(sockD, 'queue:join', { mood: 'hafif' });
+    await emitAck(sockM, 'queue:join', { mood: 'hafif' });
+    const [m3] = await Promise.all([m3D, m3M]);
+    check('üçüncü eşleşme kuruldu (Deniz-Mehmet)', m3.matchId > 0);
+    const addD = await emitAck(sockD, 'friend:add', { matchId: m3.matchId });
+    check('tek taraflı istek gönderildi', addD.ok === true && addD.mutual === false);
+    const evt = await reqEvt;
+    check('alıcıya friend:request olayı düştü', evt.from.displayName === 'Deniz');
+    await emitAck(sockD, 'match:end', {});
+
+    const inbox = await api('GET', '/api/friend-requests', null, mehmet.token);
+    check('istek kutusunda Deniz görünüyor',
+      inbox.body.requests.length === 1 && inbox.body.requests[0].from.displayName === 'Deniz');
+    const senderInbox = await api('GET', '/api/friend-requests', null, deniz.token);
+    check('istek sahibinin kutusu boş (tek yönlü)', senderInbox.body.requests.length === 0);
+
+    const fNewD = waitFor(sockD, 'friend:new', 8000);
+    const acc = await api('POST', `/api/friend-requests/${m3.matchId}/accept`, {}, mehmet.token);
+    check('istek onaylandı', acc.body.ok === true);
+    const fnD = await fNewD;
+    check('istek sahibine friend:new bildirimi gitti', fnD.friend.displayName === 'Mehmet');
+    const inbox2 = await api('GET', '/api/friend-requests', null, mehmet.token);
+    check('onay sonrası kutu boşaldı', inbox2.body.requests.length === 0);
+    const mFriends = await api('GET', '/api/friends', null, mehmet.token);
+    check('arkadaş listesine Deniz eklendi',
+      mFriends.body.friends.some((f) => f.friend.displayName === 'Deniz'));
+    sockD.disconnect();
+
+    console.log('\n[6.8] Profil fotoğrafı');
+    const avatarRes = await api('POST', '/api/me/avatar', { imageBase64: tinyJpegBase64 }, ayse.token);
+    check('avatar yüklendi', avatarRes.body.ok === true && String(avatarRes.body.avatarUrl).startsWith('/avatars/'));
+    const avatarFetch = await fetch(BASE + avatarRes.body.avatarUrl);
+    check('avatar servis ediliyor', avatarFetch.status === 200);
+    const meAfterAvatar = await api('GET', '/api/me', null, ayse.token);
+    check('profilde avatarUrl görünüyor', meAfterAvatar.body.user.avatarUrl === avatarRes.body.avatarUrl);
+    const badAvatar = await api('POST', '/api/me/avatar', { imageBase64: Buffer.from('kotu-veri-goruntu-degil').toString('base64') }, ayse.token);
+    check('görüntü olmayan veri reddedildi', badAvatar.status === 400);
+    const delAvatar = await api('DELETE', '/api/me/avatar', null, ayse.token);
+    check('avatar kaldırıldı', delAvatar.body.ok === true);
+    const meAfterDel = await api('GET', '/api/me', null, ayse.token);
+    check('avatarUrl temizlendi', meAfterDel.body.user.avatarUrl === null);
+
     console.log('\n[7] Engelleme');
     const blockRes = await api('POST', `/blocks/${mehmet.user.id}`.replace('/blocks', '/api/blocks'), {}, ayse.token);
     check('engelleme başarılı', blockRes.body.ok === true);
@@ -198,7 +247,7 @@ async function main() {
     const login = await api('POST', '/api/admin/login', { username: 'admin', password: adminPass });
     check('admin girişi', login.body.ok === true);
     const dash = await api('GET', '/api/admin/dashboard', null, login.body.token);
-    check('dashboard metrikleri', dash.body.totalUsers === 2 && dash.body.pendingReports === 1 && dash.body.matches24h === 2);
+    check('dashboard metrikleri', dash.body.totalUsers === 3 && dash.body.pendingReports === 1 && dash.body.matches24h === 3);
     const reports = await api('GET', '/api/admin/reports?status=pending', null, login.body.token);
     check('rapor kuyruğu dolu', reports.body.reports.length === 1 && reports.body.reports[0].category === 'taciz');
     check('kanıt URL üretildi', !!reports.body.reports[0].evidenceUrl);

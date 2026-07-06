@@ -22,6 +22,11 @@ module.exports = {
   DATA_DIR,
   DB_FILE: process.env.PROJEX_DB_FILE || path.join(DATA_DIR, 'projex.db'),
   EVIDENCE_DIR: path.join(DATA_DIR, 'evidence'),
+  AVATAR_DIR: path.join(DATA_DIR, 'avatars'),
+  AVATAR_MAX_BYTES: 2 * 1024 * 1024,
+
+  // Arkadaşlık isteği kutusu: istekler bu süre boyunca listede kalır.
+  FRIEND_REQUEST_TTL_MS: 7 * 24 * 60 * 60 * 1000,
   JWT_SECRET: jwtSecret,
   JWT_EXPIRES: '30d',
   ADMIN_JWT_EXPIRES: '12h',

@@ -5,6 +5,7 @@ import '../models.dart';
 import '../session.dart';
 import '../socket_service.dart';
 import '../theme.dart';
+import '../widgets/user_avatar.dart';
 
 /// Birebir kalıcı sohbet ekranı.
 class ChatScreen extends StatefulWidget {
@@ -219,17 +220,10 @@ class _ChatScreenState extends State<ChatScreen> {
         titleSpacing: 0,
         title: Row(
           children: [
-            CircleAvatar(
-              radius: 18,
-              backgroundColor: avatarColor(friend.displayName),
-              child: Text(
-                friend.displayName.isNotEmpty
-                    ? friend.displayName[0].toUpperCase()
-                    : '?',
-                style: const TextStyle(
-                    fontSize: 15, fontWeight: FontWeight.w800, color: Colors.white),
-              ),
-            ),
+            UserAvatar(
+                name: friend.displayName,
+                avatarUrl: friend.avatarUrl,
+                radius: 18),
             const SizedBox(width: 10),
             Column(
               crossAxisAlignment: CrossAxisAlignment.start,

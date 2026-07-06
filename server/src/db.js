@@ -7,6 +7,7 @@ const config = require('./config');
 
 fs.mkdirSync(path.dirname(config.DB_FILE), { recursive: true });
 fs.mkdirSync(config.EVIDENCE_DIR, { recursive: true });
+fs.mkdirSync(config.AVATAR_DIR, { recursive: true });
 
 const db = new DatabaseSync(config.DB_FILE);
 db.exec('PRAGMA journal_mode = WAL');
@@ -124,6 +125,22 @@ CREATE TABLE IF NOT EXISTS admin_accounts (
   created_at    INTEGER NOT NULL
 );
 `);
+
+// --- Şema göçleri --------------------------------------------------------------
+// Mevcut veritabanlarını bozmadan yeni kolon ekler (CREATE TABLE IF NOT EXISTS
+// var olan tabloyu değiştirmez).
+
+function ensureColumn(table, name, ddl) {
+  const cols = db.prepare(`PRAGMA table_info(${table})`).all();
+  if (!cols.some((c) => c.name === name)) {
+    db.exec(`ALTER TABLE ${table} ADD COLUMN ${ddl}`);
+  }
+}
+
+ensureColumn('users', 'avatar_path', 'avatar_path TEXT');
+// İstek kutusu: alıcı isteği reddettiyse bir daha listelenmez.
+ensureColumn('matches', 'req_declined_a', 'req_declined_a INTEGER NOT NULL DEFAULT 0');
+ensureColumn('matches', 'req_declined_b', 'req_declined_b INTEGER NOT NULL DEFAULT 0');
 
 // --- Ayarlar -----------------------------------------------------------------
 

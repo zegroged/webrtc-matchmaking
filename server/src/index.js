@@ -30,6 +30,9 @@ app.use('/api', api.router);
 
 app.get('/health', (req, res) => res.json({ ok: true, ts: Date.now() }));
 
+// Profil fotoğrafları: dosya adları rastgele bileşen içerir (tahmin edilemez).
+app.use('/avatars', express.static(config.AVATAR_DIR, { maxAge: '7d', immutable: true }));
+
 // Yönetim paneli
 app.use('/admin', express.static(path.join(__dirname, '..', 'public', 'admin')));
 

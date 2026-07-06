@@ -35,6 +35,7 @@ function publicUser(u) {
     age: ageFromBirthDate(u.birth_date),
     languages: JSON.parse(u.languages),
     interests: JSON.parse(u.interests),
+    avatarUrl: u.avatar_path ? `/avatars/${u.avatar_path}` : null,
     status: u.status,
     suspendedUntil: u.suspended_until,
     trustScore: u.trust_score,

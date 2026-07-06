@@ -1,10 +1,12 @@
 import 'dart:async';
 import 'package:flutter/material.dart';
 import '../api_client.dart';
+import '../config.dart';
 import '../models.dart';
 import '../session.dart';
 import '../socket_service.dart';
 import '../theme.dart';
+import '../widgets/user_avatar.dart';
 import 'chat_screen.dart';
 
 /// Sohbetler: arkadaş listesi + son mesaj + okunmamış rozeti + çevrimiçi durumu.
@@ -19,8 +21,11 @@ class ChatsScreen extends StatefulWidget {
 class _ChatsScreenState extends State<ChatsScreen>
     with AutomaticKeepAliveClientMixin {
   List<FriendEntry> _friends = [];
+  List<FriendRequest> _requests = [];
   bool _loading = true;
   final _subs = <StreamSubscription>[];
+  final Set<int> _actingRequests = {}; // uçuştaki istek işlemleri (çift tık koruması)
+  int _loadSeq = 0; // yükleme yarışı: bayat yanıtları at
 
   @override
   bool get wantKeepAlive => true;
@@ -31,6 +36,7 @@ class _ChatsScreenState extends State<ChatsScreen>
     _load();
     final sock = SocketService.instance;
     _subs.add(sock.friendNew.listen((_) => _load()));
+    _subs.add(sock.friendRequest.listen((_) => _loadRequests()));
     _subs.add(sock.chatMessage.listen(_onIncoming));
     _subs.add(sock.friendPresence.listen(_onPresence));
     _subs.add(sock.connectionState.listen((up) {
@@ -47,6 +53,11 @@ class _ChatsScreenState extends State<ChatsScreen>
   }
 
   Future<void> _load() async {
+    await Future.wait([_loadFriends(), _loadRequests()]);
+  }
+
+  Future<void> _loadFriends() async {
+    final seq = ++_loadSeq;
     try {
       final res = await ApiClient.get('/api/friends');
       final list = (res['friends'] as List)
@@ -58,7 +69,9 @@ class _ChatsScreenState extends State<ChatsScreen>
       for (final f in list) {
         f.online = online.contains(f.friend.id);
       }
-      if (mounted) {
+      // Bu yükleme sürerken canlı bir mesaj/olay listeyi güncellediyse
+      // (_loadSeq arttıysa) bayat anlık görüntüyü yazma; taze veri gelecek.
+      if (mounted && seq == _loadSeq) {
         setState(() {
           _friends = list;
           _loading = false;
@@ -69,7 +82,58 @@ class _ChatsScreenState extends State<ChatsScreen>
     }
   }
 
+  Future<void> _loadRequests() async {
+    try {
+      final res = await ApiClient.get('/api/friend-requests');
+      final list = (res['requests'] as List)
+          .map((j) => FriendRequest.fromJson(Map<String, dynamic>.from(j)))
+          .toList();
+      if (mounted) setState(() => _requests = list);
+    } catch (_) {}
+  }
+
+  Future<void> _acceptRequest(FriendRequest r) async {
+    if (!_actingRequests.add(r.matchId)) return; // çift tık koruması
+    setState(() => _requests.removeWhere((x) => x.matchId == r.matchId));
+    try {
+      await ApiClient.post('/api/friend-requests/${r.matchId}/accept');
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+        content: Text('🎉 ${r.from.displayName} ile artık arkadaşsınız!'),
+        backgroundColor: Brand.success.withValues(alpha: 0.95),
+      ));
+      _load();
+    } on ApiException catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+            content: Text(e.message), backgroundColor: Brand.danger));
+        _loadRequests();
+      }
+    } catch (_) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
+            content: Text('İstek onaylanamadı. Bağlantınızı kontrol edin.'),
+            backgroundColor: Brand.danger));
+        _loadRequests();
+      }
+    } finally {
+      _actingRequests.remove(r.matchId);
+    }
+  }
+
+  Future<void> _declineRequest(FriendRequest r) async {
+    if (!_actingRequests.add(r.matchId)) return;
+    setState(() => _requests.removeWhere((x) => x.matchId == r.matchId));
+    try {
+      await ApiClient.post('/api/friend-requests/${r.matchId}/decline');
+    } catch (_) {
+    } finally {
+      _actingRequests.remove(r.matchId);
+    }
+  }
+
   void _onIncoming(ChatMessage msg) {
+    _loadSeq++; // uçuştaki _loadFriends'in bu güncellemeyi ezmesini engelle
     final idx = _friends.indexWhere((f) => f.friendshipId == msg.friendshipId);
     if (idx == -1) {
       _load();
@@ -240,98 +304,173 @@ class _ChatsScreenState extends State<ChatsScreen>
         color: Brand.primary,
         child: _loading
             ? const Center(child: CircularProgressIndicator())
-            : _friends.isEmpty
+            : (_friends.isEmpty && _requests.isEmpty)
                 ? _emptyView()
-                : ListView.separated(
+                : ListView(
                     physics: const AlwaysScrollableScrollPhysics(),
-                    itemCount: _friends.length,
-                    separatorBuilder: (_, _) =>
-                        const Divider(height: 1, indent: 76),
-                    itemBuilder: (ctx, i) {
-                      final f = _friends[i];
-                      final me = Session.instance.user?.id;
-                      final prefix =
-                          f.lastMessageSenderId == me ? 'Sen: ' : '';
-                      return ListTile(
-                        onTap: f.deleted ? null : () => _openChat(f),
-                        onLongPress: () => _showOptions(f),
-                        contentPadding: const EdgeInsets.symmetric(
-                            horizontal: 16, vertical: 6),
-                        leading: Stack(
-                          children: [
-                            CircleAvatar(
-                              radius: 26,
-                              backgroundColor:
-                                  avatarColor(f.friend.displayName),
-                              child: Text(
-                                f.friend.displayName.isNotEmpty
-                                    ? f.friend.displayName[0].toUpperCase()
-                                    : '?',
-                                style: const TextStyle(
-                                    fontSize: 20,
-                                    fontWeight: FontWeight.w800,
-                                    color: Colors.white),
-                              ),
-                            ),
-                            if (f.online)
-                              Positioned(
-                                right: 0,
-                                bottom: 0,
-                                child: Container(
-                                  width: 14,
-                                  height: 14,
-                                  decoration: BoxDecoration(
-                                    color: Brand.success,
-                                    shape: BoxShape.circle,
-                                    border: Border.all(
-                                        color: Brand.bg, width: 2.5),
-                                  ),
-                                ),
-                              ),
-                          ],
-                        ),
-                        title: Text(
-                          f.friend.displayName,
-                          style: const TextStyle(fontWeight: FontWeight.w700),
-                        ),
-                        subtitle: Text(
-                          f.lastMessageBody != null
-                              ? '$prefix${f.lastMessageBody}'
-                              : 'Yeni arkadaş — merhaba de! 👋',
+                    children: [
+                      if (_requests.isNotEmpty) ..._requestsSection(),
+                      for (var i = 0; i < _friends.length; i++) ...[
+                        if (i > 0) const Divider(height: 1, indent: 76),
+                        _friendTile(_friends[i]),
+                      ],
+                    ],
+                  ),
+      ),
+    );
+  }
+
+  /// İstek kutusu: yanlışlıkla geçilen eşleşmelerden gelen tek taraflı
+  /// istekler buradan onaylanabilir.
+  List<Widget> _requestsSection() {
+    return [
+      Padding(
+        padding: const EdgeInsets.fromLTRB(16, 12, 16, 4),
+        child: Row(
+          children: [
+            const Text('Arkadaşlık İstekleri',
+                style: TextStyle(fontWeight: FontWeight.w800, fontSize: 15)),
+            const SizedBox(width: 8),
+            Container(
+              padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
+              decoration: BoxDecoration(
+                color: Brand.secondary,
+                borderRadius: BorderRadius.circular(10),
+              ),
+              child: Text('${_requests.length}',
+                  style: const TextStyle(
+                      fontSize: 12,
+                      fontWeight: FontWeight.w700,
+                      color: Colors.white)),
+            ),
+          ],
+        ),
+      ),
+      ..._requests.map((r) => Card(
+            margin: const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
+            child: Padding(
+              padding: const EdgeInsets.all(12),
+              child: Row(
+                children: [
+                  UserAvatar(
+                      name: r.from.displayName,
+                      avatarUrl: r.from.avatarUrl,
+                      radius: 24),
+                  const SizedBox(width: 12),
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text('${r.from.displayName}, ${r.from.age}',
+                            style:
+                                const TextStyle(fontWeight: FontWeight.w700)),
+                        Text(
+                          r.from.interests
+                              .map((i) => Catalog.interests[i]?.label ?? i)
+                              .join(', '),
                           maxLines: 1,
                           overflow: TextOverflow.ellipsis,
-                          style: TextStyle(
-                            color: f.unread > 0 ? Brand.text : Brand.textDim,
-                            fontWeight:
-                                f.unread > 0 ? FontWeight.w600 : FontWeight.w400,
-                          ),
+                          style: const TextStyle(
+                              color: Brand.textDim, fontSize: 12),
                         ),
-                        trailing: Column(
-                          mainAxisAlignment: MainAxisAlignment.center,
-                          crossAxisAlignment: CrossAxisAlignment.end,
-                          children: [
-                            Text(_timeLabel(f.lastMessageAt),
-                                style: const TextStyle(
-                                    color: Brand.textDim, fontSize: 12)),
-                            const SizedBox(height: 4),
-                            if (f.unread > 0)
-                              Container(
-                                padding: const EdgeInsets.symmetric(
-                                    horizontal: 8, vertical: 2),
-                                decoration: BoxDecoration(
-                                  color: Brand.primary,
-                                  borderRadius: BorderRadius.circular(10),
-                                ),
-                                child: Text('${f.unread}',
-                                    style: const TextStyle(
-                                        fontSize: 12,
-                                        fontWeight: FontWeight.w700)),
-                              ),
-                          ],
-                        ),
-                      );
-                    },
+                      ],
+                    ),
                   ),
+                  const SizedBox(width: 8),
+                  IconButton(
+                    tooltip: 'Onayla',
+                    onPressed: () => _acceptRequest(r),
+                    style: IconButton.styleFrom(
+                        backgroundColor: Brand.success,
+                        foregroundColor: Colors.white),
+                    icon: const Icon(Icons.check_rounded),
+                  ),
+                  IconButton(
+                    tooltip: 'Reddet',
+                    onPressed: () => _declineRequest(r),
+                    style: IconButton.styleFrom(
+                        backgroundColor: Brand.surfaceHigh,
+                        foregroundColor: Brand.textDim),
+                    icon: const Icon(Icons.close_rounded),
+                  ),
+                ],
+              ),
+            ),
+          )),
+      if (_friends.isNotEmpty)
+        const Padding(
+          padding: EdgeInsets.fromLTRB(16, 14, 16, 4),
+          child: Text('Sohbetler',
+              style: TextStyle(fontWeight: FontWeight.w800, fontSize: 15)),
+        ),
+    ];
+  }
+
+  Widget _friendTile(FriendEntry f) {
+    final me = Session.instance.user?.id;
+    final prefix = f.lastMessageSenderId == me ? 'Sen: ' : '';
+    return ListTile(
+      onTap: f.deleted ? null : () => _openChat(f),
+      onLongPress: () => _showOptions(f),
+      contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 6),
+      leading: Stack(
+        children: [
+          UserAvatar(
+              name: f.friend.displayName,
+              avatarUrl: f.friend.avatarUrl,
+              radius: 26),
+          if (f.online)
+            Positioned(
+              right: 0,
+              bottom: 0,
+              child: Container(
+                width: 14,
+                height: 14,
+                decoration: BoxDecoration(
+                  color: Brand.success,
+                  shape: BoxShape.circle,
+                  border: Border.all(color: Brand.bg, width: 2.5),
+                ),
+              ),
+            ),
+        ],
+      ),
+      title: Text(
+        f.friend.displayName,
+        style: const TextStyle(fontWeight: FontWeight.w700),
+      ),
+      subtitle: Text(
+        f.lastMessageBody != null
+            ? '$prefix${f.lastMessageBody}'
+            : 'Yeni arkadaş — merhaba de! 👋',
+        maxLines: 1,
+        overflow: TextOverflow.ellipsis,
+        style: TextStyle(
+          color: f.unread > 0 ? Brand.text : Brand.textDim,
+          fontWeight: f.unread > 0 ? FontWeight.w600 : FontWeight.w400,
+        ),
+      ),
+      trailing: Column(
+        mainAxisAlignment: MainAxisAlignment.center,
+        crossAxisAlignment: CrossAxisAlignment.end,
+        children: [
+          Text(_timeLabel(f.lastMessageAt),
+              style: const TextStyle(color: Brand.textDim, fontSize: 12)),
+          const SizedBox(height: 4),
+          if (f.unread > 0)
+            Container(
+              padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
+              decoration: BoxDecoration(
+                color: Brand.primary,
+                borderRadius: BorderRadius.circular(10),
+              ),
+              child: Text('${f.unread}',
+                  style: const TextStyle(
+                      fontSize: 12,
+                      fontWeight: FontWeight.w700,
+                      color: Colors.white)),
+            ),
+        ],
       ),
     );
   }
