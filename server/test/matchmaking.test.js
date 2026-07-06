@@ -119,4 +119,19 @@ test('bekleme eşiği tanımlı aralıklarla gevşer', () => {
   assert.equal(mm.thresholdFor(5000), 30);
   assert.equal(mm.thresholdFor(14999), 30);
   assert.equal(mm.thresholdFor(15000), 0);
+  assert.equal(mm.thresholdFor(29999), 0);
+  assert.equal(mm.thresholdFor(30000), -200, 'uzun beklemede rematch cezası delinebilir olmalı');
+});
+
+test('küçük havuzda cooldown\'lu çift uzun beklemede yeniden eşleşebilir', () => {
+  const { mm, matches } = makeMm();
+  mm.notePairEnded(1, 2, false); // az önce görüştüler (cooldown aktif)
+  mm.enqueue(entry(1, { interests: ['muzik', 'kitap', 'sanat'] }));
+  mm.enqueue(entry(2, { interests: ['muzik', 'oyun', 'spor'] }));
+  mm.tick();
+  assert.equal(matches.length, 0, 'cooldown içinde hemen eşleşmemeli');
+  mm.queue.get(1).joinedAt = Date.now() - 31000;
+  mm.queue.get(2).joinedAt = Date.now() - 31000;
+  mm.tick();
+  assert.equal(matches.length, 1, '30sn+ beklemede eşleşmeli');
 });

@@ -8,7 +8,8 @@
     "start": "node src/index.js",
     "dev": "node --watch src/index.js",
     "test": "node --test",
-    "e2e": "node test/e2e-sim.js"
+    "e2e": "node tools/e2e-sim.js",
+    "seed": "node tools/seed-demo.js"
   },
   "dependencies": {
     "express": "^4.21.2",

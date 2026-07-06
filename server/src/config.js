@@ -44,7 +44,11 @@ module.exports = {
   MATCH_THRESHOLDS: [
     { maxWaitMs: 5000, minScore: 60 },
     { maxWaitMs: 15000, minScore: 30 },
-    { maxWaitMs: Infinity, minScore: 0 },
+    { maxWaitMs: 30000, minScore: 0 },
+    // 30 sn'den uzun bekleyen kimse boş dönmesin: küçük havuzda yeniden
+    // eşleşme cezası (-100) bile delinebilir olmalı; sert kurallar (dil,
+    // engel) her durumda geçerli kalır.
+    { maxWaitMs: Infinity, minScore: -200 },
   ],
   SKIP_REMATCH_PENALTY: 30,
   REMATCH_COOLDOWN_MS: 5 * 60 * 1000, // aynı ikili 5 dk içinde tekrar eşleşmez (havuz küçükse puanla delinebilir)
