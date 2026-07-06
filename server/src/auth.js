@@ -51,6 +51,7 @@ function requireUser(req, res, next) {
   const user = db.prepare('SELECT * FROM users WHERE id = ?').get(payload.sub);
   if (!user) return res.status(401).json({ error: 'auth_required' });
   const status = effectiveStatus(user);
+  if (status === 'deleted') return res.status(401).json({ error: 'account_deleted' });
   if (status === 'banned') return res.status(403).json({ error: 'banned' });
   req.user = user;
   req.userStatus = status;

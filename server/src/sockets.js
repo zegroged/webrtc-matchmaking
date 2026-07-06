@@ -163,6 +163,7 @@ function initSockets(io) {
     const user = db.prepare('SELECT * FROM users WHERE id = ?').get(payload.sub);
     if (!user) return next(new Error('auth_required'));
     const status = effectiveStatus(user);
+    if (status === 'deleted') return next(new Error('account_deleted'));
     if (status === 'banned') return next(new Error('banned'));
     if (status === 'suspended') return next(new Error('suspended'));
     socket.data.userId = user.id;

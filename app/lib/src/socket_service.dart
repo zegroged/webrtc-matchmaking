@@ -24,6 +24,9 @@ class SocketService {
   final _suspendedCtrl = StreamController<String>.broadcast();
   final _sessionReplacedCtrl = StreamController<void>.broadcast();
   final _connectionStateCtrl = StreamController<bool>.broadcast();
+  // Sunucu el sıkışmayı reddettiğinde ('suspended'|'banned'|'account_deleted'|
+  // 'auth_required') buradan bildirilir; HomeShell uygun diyaloğu gösterir.
+  final _authErrorCtrl = StreamController<String>.broadcast();
 
   Stream<MatchInfo> get matchFound => _matchFoundCtrl.stream;
   Stream<Map<String, dynamic>> get matchEnded => _matchEndedCtrl.stream;
@@ -35,6 +38,7 @@ class SocketService {
   Stream<String> get suspended => _suspendedCtrl.stream;
   Stream<void> get sessionReplaced => _sessionReplacedCtrl.stream;
   Stream<bool> get connectionState => _connectionStateCtrl.stream;
+  Stream<String> get authError => _authErrorCtrl.stream;
 
   void connect() {
     if (_socket != null) {
@@ -53,6 +57,15 @@ class SocketService {
 
     socket.onConnect((_) => _connectionStateCtrl.add(true));
     socket.onDisconnect((_) => _connectionStateCtrl.add(false));
+    socket.onConnectError((err) {
+      final msg = err is Map ? (err['message']?.toString() ?? '') : err.toString();
+      // Socket.IO middleware hataları mesaj olarak gelir: 'suspended', 'banned',
+      // 'account_deleted', 'auth_required'. Bunlar yeniden bağlanmakla düzelmez.
+      if (msg.contains('suspended') || msg.contains('banned') ||
+          msg.contains('account_deleted') || msg.contains('auth_required')) {
+        _authErrorCtrl.add(msg);
+      }
+    });
 
     socket.on('match:found', (data) {
       try {

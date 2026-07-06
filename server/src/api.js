@@ -7,6 +7,11 @@ const { ageFromBirthDate } = require('./util');
 const { createReport } = require('./moderation');
 
 const router = express.Router();
+
+// Socket hub kancaları index.js tarafından bağlanır (hesap silmede oturumu düşürmek için).
+let hub = { disconnectUser: () => {} };
+function attachHub(h) { hub = h; }
+
 router.use(requireUser);
 
 // Karşı tarafa gösterilen kısıtlı profil.
@@ -75,6 +80,9 @@ router.delete('/me', (req, res) => {
   };
   db.exec('BEGIN');
   try { tx(); db.exec('COMMIT'); } catch (e) { db.exec('ROLLBACK'); throw e; }
+  // Aktif socket'i düşür: kuyruktan çıkar, varsa görüşmeyi bitir (disconnect
+  // handler'ı bunları yapar). Böylece silinen hesap anında pasifleşir.
+  hub.disconnectUser(uid);
   res.json({ ok: true });
 });
 
@@ -190,4 +198,4 @@ router.get('/rtc-config', (req, res) => {
   res.json({ iceServers: config.ICE_SERVERS });
 });
 
-module.exports = { router, peerView };
+module.exports = { router, peerView, attachHub };

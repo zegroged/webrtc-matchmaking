@@ -54,6 +54,7 @@ const io = new Server(server, {
 
 const hub = initSockets(io);
 admin.attachHub(hub);
+api.attachHub(hub);
 
 // Hata yakalayıcı: beklenmeyen hatalarda süreç ayakta kalır, hata loglanır.
 process.on('uncaughtException', (err) => console.error('[fatal] uncaughtException:', err));

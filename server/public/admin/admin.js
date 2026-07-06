@@ -352,7 +352,20 @@
     clear(listBox);
     listBox.appendChild(el('p', 'muted empty', 'Yükleniyor…'));
 
-    const data = await api('/api/admin/reports?status=' + encodeURIComponent(state.reportsStatus));
+    let data;
+    try {
+      data = await api('/api/admin/reports?status=' + encodeURIComponent(state.reportsStatus));
+    } catch (err) {
+      // İstek başarısızsa (ağ/500) 'Yükleniyor…' göstergesi sonsuza dek takılı
+      // kalmasın; hata satırı + yeniden dene butonu göster.
+      clear(listBox);
+      const errBox = el('p', 'muted empty', 'Raporlar yüklenemedi. ');
+      const retry = el('button', 'btn btn-small', 'Tekrar dene');
+      retry.addEventListener('click', loadReports);
+      errBox.appendChild(retry);
+      listBox.appendChild(errBox);
+      return;
+    }
 
     clear(listBox);
     const reports = data.reports || [];

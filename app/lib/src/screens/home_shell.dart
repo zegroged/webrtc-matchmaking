@@ -67,6 +67,40 @@ class _HomeShellState extends State<HomeShell> {
         content: Text('Hesabınıza başka bir cihazdan giriş yapıldı.'),
       ));
     }));
+
+    // Sunucu bağlantı el sıkışmasını reddederse (askı/ban/silinen hesap/geçersiz
+    // oturum) kullanıcıya doğru nedeni göster; yeniden bağlanmayı sürdürme.
+    _subs.add(sock.authError.listen((msg) async {
+      if (!mounted) return;
+      String title, body;
+      if (msg.contains('suspended')) {
+        title = 'Hesap askıya alındı';
+        body = 'Hesabınız geçici olarak askıya alınmış. Bir süre sonra tekrar deneyin.';
+      } else if (msg.contains('banned')) {
+        title = 'Hesap engellendi';
+        body = 'Hesabınız topluluk kurallarının ihlali nedeniyle kalıcı olarak kapatıldı.';
+      } else if (msg.contains('account_deleted')) {
+        title = 'Hesap silindi';
+        body = 'Bu hesap silinmiş. Yeniden başlamak için tekrar kayıt olun.';
+      } else {
+        title = 'Oturum geçersiz';
+        body = 'Oturumunuzun süresi doldu. Lütfen tekrar giriş yapın.';
+      }
+      SocketService.instance.disconnect();
+      await showDialog(
+        context: context,
+        barrierDismissible: false,
+        builder: (ctx) => AlertDialog(
+          title: Text(title),
+          content: Text(body),
+          actions: [
+            TextButton(
+                onPressed: () => Navigator.of(ctx).pop(), child: const Text('Tamam')),
+          ],
+        ),
+      );
+      if (mounted) _logoutToOnboarding();
+    }));
   }
 
   void _logoutToOnboarding() async {

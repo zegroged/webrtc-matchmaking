@@ -24,18 +24,29 @@ class _DiscoverScreenState extends State<DiscoverScreen>
   StreamSubscription? _matchSub;
   late final AnimationController _pulse;
 
+  StreamSubscription? _connSub;
+
   @override
   void initState() {
     super.initState();
     _pulse = AnimationController(vsync: this, duration: const Duration(seconds: 2))
       ..repeat();
     _matchSub = SocketService.instance.matchFound.listen(_onMatchFound);
+    // Arama sırasında bağlantı koparsa sunucu kullanıcıyı kuyruktan çıkarır.
+    // Yeniden bağlanınca otomatik tekrar katıl; kalıcı koparsa aramayı durdur.
+    _connSub = SocketService.instance.connectionState.listen((up) {
+      if (!mounted || !_searching) return;
+      if (up) {
+        SocketService.instance.joinQueue(_mood);
+      }
+    });
   }
 
   @override
   void dispose() {
     _waitTimer?.cancel();
     _matchSub?.cancel();
+    _connSub?.cancel();
     _pulse.dispose();
     super.dispose();
   }
@@ -71,7 +82,12 @@ class _DiscoverScreenState extends State<DiscoverScreen>
   }
 
   Future<void> _onMatchFound(MatchInfo match) async {
-    if (!mounted || !_searching) return;
+    // Arama iptal edildikten sonra eşleşme gelirse (ör. yavaş ağda ack zaman
+    // aşımı) sunucuda sahipsiz eşleşme kalmasın diye kapat.
+    if (!mounted || !_searching) {
+      SocketService.instance.endMatch();
+      return;
+    }
     _stopSearchUi();
     // Görüşme ekranına geç; dönüşte 'requeue' gelirse otomatik yeni arama başlat.
     final result = await Navigator.of(context).push<String>(

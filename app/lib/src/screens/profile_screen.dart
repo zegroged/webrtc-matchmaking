@@ -53,8 +53,8 @@ class _ProfileScreenState extends State<ProfileScreen> {
       title: 'Konuştuğun diller',
       options: Catalog.languages.map((k, v) => MapEntry(k, v)),
       selected: selected,
-      min: 1,
       max: Catalog.languages.length,
+      minToSave: 1, // en az bir dil
     );
     if (ok && mounted) await _save({'languages': selected.toList()});
   }
@@ -63,54 +63,73 @@ class _ProfileScreenState extends State<ProfileScreen> {
     final user = Session.instance.user!;
     final selected = Set<String>.from(user.interests);
     final ok = await _chipPicker(
-      title: 'İlgi alanların (3 adet)',
+      title: 'İlgi alanların (tam 3 adet)',
       options: Catalog.interests
           .map((k, v) => MapEntry(k, '${v.emoji} ${v.label}')),
       selected: selected,
-      min: 3,
       max: 3,
+      exactToSave: 3, // sunucu tam 3 ilgi ister
     );
     if (ok && mounted) await _save({'interests': selected.toList()});
   }
 
+  /// Çoklu seçim diyaloğu. Seçim üst sınırı [max]; kaldırma her zaman serbesttir
+  /// (kilitlenmeyi önler). "Kaydet" yalnızca geçerli sayıda seçim varken aktifleşir:
+  /// [exactToSave] verildiyse tam o kadar, yoksa en az [minToSave].
   Future<bool> _chipPicker({
     required String title,
     required Map<String, String> options,
     required Set<String> selected,
-    required int min,
     required int max,
+    int minToSave = 0,
+    int? exactToSave,
   }) async {
+    bool canSave() => exactToSave != null
+        ? selected.length == exactToSave
+        : selected.length >= minToSave;
     final res = await showDialog<bool>(
       context: context,
       builder: (ctx) => StatefulBuilder(
         builder: (ctx, setD) => AlertDialog(
           title: Text(title),
-          content: Wrap(
-            spacing: 8,
-            runSpacing: 8,
-            children: options.entries.map((e) {
-              final sel = selected.contains(e.key);
-              return FilterChip(
-                label: Text(e.value),
-                selected: sel,
-                onSelected: (v) => setD(() {
-                  if (v) {
-                    if (selected.length < max) selected.add(e.key);
-                  } else {
-                    if (selected.length > min) selected.remove(e.key);
-                  }
-                }),
-              );
-            }).toList(),
+          content: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Wrap(
+                spacing: 8,
+                runSpacing: 8,
+                children: options.entries.map((e) {
+                  final sel = selected.contains(e.key);
+                  return FilterChip(
+                    label: Text(e.value),
+                    selected: sel,
+                    onSelected: (v) => setD(() {
+                      if (v) {
+                        if (selected.length < max) selected.add(e.key);
+                      } else {
+                        selected.remove(e.key); // kaldırma her zaman serbest
+                      }
+                    }),
+                  );
+                }).toList(),
+              ),
+              const SizedBox(height: 12),
+              Text(
+                exactToSave != null
+                    ? '${selected.length}/$exactToSave seçildi'
+                    : '${selected.length} seçildi',
+                style: TextStyle(
+                    color: canSave() ? Brand.success : Brand.textDim,
+                    fontSize: 13),
+              ),
+            ],
           ),
           actions: [
             TextButton(
                 onPressed: () => Navigator.of(ctx).pop(false),
                 child: const Text('Vazgeç')),
             TextButton(
-                onPressed: selected.length >= min
-                    ? () => Navigator.of(ctx).pop(true)
-                    : null,
+                onPressed: canSave() ? () => Navigator.of(ctx).pop(true) : null,
                 child: const Text('Kaydet')),
           ],
         ),

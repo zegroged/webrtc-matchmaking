@@ -54,6 +54,11 @@ class _ChatScreenState extends State<ChatScreen> {
         setState(() => _peerOnline = data['online'] == true);
       }
     }));
+    // Bağlantı koptuğunda karşı taraf mesaj gönderirse yalnızca DB'ye yazılır.
+    // Yeniden bağlanınca son mesajdan sonrasını çekip birleştir.
+    _subs.add(sock.connectionState.listen((up) {
+      if (up && mounted && !_loading) _syncNewMessages();
+    }));
     _scrollCtrl.addListener(() {
       if (_scrollCtrl.position.pixels <= 40 && !_loadingMore && _hasMore) {
         _loadMore();
@@ -90,6 +95,30 @@ class _ChatScreenState extends State<ChatScreen> {
     } catch (_) {
       if (mounted) setState(() => _loading = false);
     }
+  }
+
+  // Yeniden bağlanma sonrası: bilinen en son mesaj id'sinden sonrasını çek,
+  // id bazlı tekilleştirerek ekle (kopukluk sırasında kaçan mesajları getirir).
+  Future<void> _syncNewMessages() async {
+    if (_messages.isEmpty) {
+      _loadHistory();
+      return;
+    }
+    try {
+      final lastId = _messages.last.id;
+      final res = await ApiClient.get(
+          '/api/friends/${widget.entry.friendshipId}/messages?limit=100');
+      final list = (res['messages'] as List)
+          .map((j) => ChatMessage.fromJson(Map<String, dynamic>.from(j)))
+          .where((m) => m.id > lastId)
+          .toList();
+      if (list.isNotEmpty && mounted) {
+        final known = _messages.map((m) => m.id).toSet();
+        setState(() => _messages.addAll(list.where((m) => !known.contains(m.id))));
+        SocketService.instance.markRead(widget.entry.friendshipId);
+        _scrollToEnd();
+      }
+    } catch (_) {}
   }
 
   Future<void> _loadMore() async {

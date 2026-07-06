@@ -38,6 +38,15 @@ class _CallScreenState extends State<CallScreen> {
   bool _friendsNow = false;
   bool _mediaError = false;
 
+  // WebRTC sinyal senkronizasyonu: PeerConnection hazır olmadan gelen sinyaller
+  // ve remoteDescription set edilmeden gelen ICE adayları kaybedilmesin diye
+  // tamponlanır (aksi halde ilk kullanımda kamera izni diyalogu açıkken gelen
+  // offer düşer ve görüşme hiç kurulamaz).
+  final List<Map<String, dynamic>> _pendingSignals = [];
+  final List<Map<String, dynamic>> _pendingCandidates = [];
+  bool _remoteDescSet = false;
+  bool _reportSheetOpen = false;
+
   // Görüşme sonu durumu
   bool _ended = false;
   String _endReason = '';
@@ -51,6 +60,20 @@ class _CallScreenState extends State<CallScreen> {
     _subs.add(SocketService.instance.rtcSignal.listen(_onSignal));
     _subs.add(SocketService.instance.matchEnded.listen(_onMatchEnded));
     _subs.add(SocketService.instance.friendNew.listen(_onFriendNew));
+    // Görüşme sırasında bağlantı koparsa sunucu match:ended'i iletemez; kullanıcı
+    // ekranda hapsolmasın diye yerel olarak bitiş kartını göster.
+    _subs.add(SocketService.instance.connectionState.listen((up) {
+      if (!up && !_ended && mounted) {
+        _closeMedia();
+        setState(() {
+          _ended = true;
+          _endReason = 'disconnect';
+          _endedByPeer = false;
+          _canAddFriend = false;
+          _finalDuration = _seconds;
+        });
+      }
+    }));
     _durationTimer = Timer.periodic(const Duration(seconds: 1), (_) {
       if (mounted && !_ended) setState(() => _seconds++);
     });
@@ -112,18 +135,35 @@ class _CallScreenState extends State<CallScreen> {
         'sdp': offer.sdp,
       });
     }
+
+    // PeerConnection hazır olmadan biriken sinyalleri şimdi sırayla işle.
+    final queued = List<Map<String, dynamic>>.from(_pendingSignals);
+    _pendingSignals.clear();
+    for (final data in queued) {
+      await _applySignal(pc, data);
+    }
     if (mounted) setState(() {});
   }
 
   Future<void> _onSignal(Map<String, dynamic> payload) async {
     if (payload['matchId'] != widget.match.matchId) return;
-    final pc = _pc;
-    if (pc == null) return;
     final data = Map<String, dynamic>.from(payload['data'] ?? {});
+    final pc = _pc;
+    if (pc == null) {
+      // PC henüz kurulmadı: sinyali tampona al, _initCall drenaj edecek.
+      _pendingSignals.add(data);
+      return;
+    }
+    await _applySignal(pc, data);
+  }
+
+  Future<void> _applySignal(RTCPeerConnection pc, Map<String, dynamic> data) async {
     try {
       if (data['type'] == 'offer') {
         await pc.setRemoteDescription(
             RTCSessionDescription(data['sdp'] as String, 'offer'));
+        _remoteDescSet = true;
+        await _flushPendingCandidates(pc);
         final answer = await pc.createAnswer();
         await pc.setLocalDescription(answer);
         SocketService.instance.sendSignal(widget.match.matchId, {
@@ -133,16 +173,39 @@ class _CallScreenState extends State<CallScreen> {
       } else if (data['type'] == 'answer') {
         await pc.setRemoteDescription(
             RTCSessionDescription(data['sdp'] as String, 'answer'));
+        _remoteDescSet = true;
+        await _flushPendingCandidates(pc);
       } else if (data['candidate'] != null) {
         final c = Map<String, dynamic>.from(data['candidate']);
+        // remoteDescription set edilmeden addCandidate hata verir; tamponla.
+        if (!_remoteDescSet) {
+          _pendingCandidates.add(c);
+        } else {
+          await pc.addCandidate(RTCIceCandidate(
+            c['candidate'] as String?,
+            c['sdpMid'] as String?,
+            c['sdpMLineIndex'] as int?,
+          ));
+        }
+      }
+    } catch (e) {
+      debugPrint('rtc signal hatası: $e');
+    }
+  }
+
+  Future<void> _flushPendingCandidates(RTCPeerConnection pc) async {
+    final pending = List<Map<String, dynamic>>.from(_pendingCandidates);
+    _pendingCandidates.clear();
+    for (final c in pending) {
+      try {
         await pc.addCandidate(RTCIceCandidate(
           c['candidate'] as String?,
           c['sdpMid'] as String?,
           c['sdpMLineIndex'] as int?,
         ));
+      } catch (e) {
+        debugPrint('ICE aday hatası: $e');
       }
-    } catch (e) {
-      debugPrint('rtc signal hatası: $e');
     }
   }
 
@@ -152,7 +215,15 @@ class _CallScreenState extends State<CallScreen> {
     _closeMedia();
     if (reason == 'skip') {
       // Geçildi: iki taraf da otomatik olarak yeni aramaya döner.
-      if (mounted) Navigator.of(context).pop('requeue');
+      // Rapor sayfası (bottom sheet) açıksa önce onu kapat, yoksa pop yanlış
+      // rotayı hedefler ve tip hatasıyla çöker.
+      if (mounted) {
+        if (_reportSheetOpen) {
+          Navigator.of(context).popUntil((r) => r.isFirst || r == ModalRoute.of(context));
+          _reportSheetOpen = false;
+        }
+        Navigator.of(context).pop('requeue');
+      }
       return;
     }
     if (mounted) {
@@ -199,13 +270,38 @@ class _CallScreenState extends State<CallScreen> {
 
   // --- Aksiyonlar --------------------------------------------------------------
 
+  bool _leaving = false;
+
   Future<void> _skip() async {
-    await SocketService.instance.skipMatch();
-    // match:ended olayı requeue akışını tetikler.
+    if (_leaving) return;
+    _leaving = true;
+    final res = await SocketService.instance.skipMatch();
+    // Normalde sunucunun match:ended('skip') olayı requeue akışını tetikler.
+    // Ama eşleşme sunucuda yoksa (yeniden başlatma/çevrimdışı) ack ok:false döner;
+    // kullanıcı ekranda kilitlenmesin diye yerel olarak yeni aramaya dön.
+    if (res['ok'] != true && mounted) {
+      _closeMedia();
+      Navigator.of(context).pop('requeue');
+    }
+    _leaving = false;
   }
 
   Future<void> _endCall() async {
-    await SocketService.instance.endMatch();
+    if (_leaving) return;
+    _leaving = true;
+    final res = await SocketService.instance.endMatch();
+    if (res['ok'] != true && mounted && !_ended) {
+      // Sunucu eşleşmeyi bilmiyor: yerel olarak bitiş kartını göster.
+      _closeMedia();
+      setState(() {
+        _ended = true;
+        _endReason = 'leave';
+        _endedByPeer = false;
+        _canAddFriend = false;
+        _finalDuration = _seconds;
+      });
+    }
+    _leaving = false;
   }
 
   Future<void> _toggleMic() async {
@@ -265,6 +361,7 @@ class _CallScreenState extends State<CallScreen> {
   Future<void> _openReportSheet() async {
     String? selected;
     final noteCtrl = TextEditingController();
+    _reportSheetOpen = true;
     final confirmed = await showModalBottomSheet<bool>(
       context: context,
       isScrollControlled: true,
@@ -320,6 +417,7 @@ class _CallScreenState extends State<CallScreen> {
         ),
       ),
     );
+    _reportSheetOpen = false;
     if (confirmed != true || selected == null || !mounted) return;
 
     final snapshot = await _captureSnapshot();

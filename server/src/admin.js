@@ -16,6 +16,12 @@ function signAdminToken(adminId) {
   return jwt.sign({ sub: adminId, kind: 'admin' }, config.JWT_SECRET, { expiresIn: config.ADMIN_JWT_EXPIRES });
 }
 
+// Tek bozuk kayıt tüm rapor kuyruğunu 500'e düşürmesin diye güvenli JSON.parse.
+function safeParse(text) {
+  if (!text) return null;
+  try { return JSON.parse(text); } catch { return null; }
+}
+
 function requireAdmin(req, res, next) {
   const header = req.headers.authorization || '';
   const token = header.startsWith('Bearer ') ? header.slice(7) : null;
@@ -95,7 +101,7 @@ router.get('/reports', (req, res) => {
       id: r.id, matchId: r.match_id, friendshipId: r.friendship_id,
       category: r.category, note: r.note,
       evidenceUrl: r.evidence_path ? `/api/admin/evidence/${r.evidence_path}` : null,
-      chatExcerpt: r.chat_excerpt ? JSON.parse(r.chat_excerpt) : null,
+      chatExcerpt: safeParse(r.chat_excerpt),
       createdAt: r.created_at, status: r.status, actionTaken: r.action_taken,
       reporter: { id: r.reporter_id, name: r.reporter_name },
       reported: { id: r.reported_id, name: r.reported_name, trust: r.reported_trust, status: r.reported_status },
@@ -115,12 +121,15 @@ router.get('/evidence/:file', (req, res) => {
 router.post('/reports/:id/resolve', (req, res) => {
   const report = db.prepare('SELECT * FROM reports WHERE id = ?').get(Number(req.params.id));
   if (!report) return res.status(404).json({ error: 'not_found' });
+  // Çift/çelişkili moderasyon aksiyonunu engelle: yalnızca bekleyen raporlar çözülebilir.
+  if (report.status !== 'pending') return res.status(409).json({ error: 'already_reviewed', message: 'Bu rapor zaten incelenmiş.' });
   const action = String(req.body?.action || '');
   const valid = ['dismissed', 'warned', 'suspended', 'banned'];
   if (!valid.includes(action)) return res.status(400).json({ error: 'invalid_action' });
 
   if (action === 'suspended') {
-    db.prepare("UPDATE users SET status = 'suspended', suspended_until = ? WHERE id = ?")
+    // Banlı kullanıcının durumunu ezip banı fiilen kaldırmayı önle.
+    db.prepare("UPDATE users SET status = 'suspended', suspended_until = ? WHERE id = ? AND status != 'banned'")
       .run(Date.now() + config.SUSPEND_DURATION_MS, report.reported_id);
     adjustTrust(report.reported_id, -10);
     hub.disconnectUser(report.reported_id);
@@ -142,7 +151,8 @@ router.post('/reports/:id/resolve', (req, res) => {
 router.get('/users', (req, res) => {
   const search = String(req.query.q || '').trim();
   const rows = search
-    ? db.prepare("SELECT * FROM users WHERE display_name LIKE ? AND status != 'deleted' ORDER BY id DESC LIMIT 50").all(`%${search}%`)
+    ? db.prepare("SELECT * FROM users WHERE (display_name LIKE ? OR id = ?) AND status != 'deleted' ORDER BY id DESC LIMIT 50")
+        .all(`%${search}%`, Number(search) || -1)
     : db.prepare("SELECT * FROM users WHERE status != 'deleted' ORDER BY id DESC LIMIT 50").all();
   res.json({
     users: rows.map((u) => ({
