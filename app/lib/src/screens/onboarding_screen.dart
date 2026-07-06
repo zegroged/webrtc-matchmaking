@@ -44,7 +44,7 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
     if (!mounted) return;
     ScaffoldMessenger.of(context).showSnackBar(SnackBar(
       content: Text(msg),
-      backgroundColor: error ? Brand.danger : Brand.surfaceHigh,
+      backgroundColor: error ? Brand.danger : null, // null -> tema varsayılanı
     ));
   }
 
@@ -298,7 +298,7 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
                     ? 'Doğum tarihin'
                     : '${_birthDate!.day.toString().padLeft(2, '0')}.${_birthDate!.month.toString().padLeft(2, '0')}.${_birthDate!.year}',
                 style: TextStyle(
-                  color: _birthDate == null ? Brand.textDim : Colors.white,
+                  color: _birthDate == null ? Brand.textDim : Brand.text,
                   fontSize: 16,
                 ),
               ),

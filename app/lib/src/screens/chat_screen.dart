@@ -279,7 +279,7 @@ class _ChatScreenState extends State<ChatScreen> {
                                 padding: const EdgeInsets.symmetric(
                                     horizontal: 12, vertical: 4),
                                 decoration: BoxDecoration(
-                                  color: Brand.surface,
+                                  color: Brand.surfaceHigh,
                                   borderRadius: BorderRadius.circular(10),
                                 ),
                                 child: Text(_dayLabel(m.createdAt),
@@ -300,6 +300,9 @@ class _ChatScreenState extends State<ChatScreen> {
                                   horizontal: 14, vertical: 10),
                               decoration: BoxDecoration(
                                 color: mine ? Brand.primary : Brand.surface,
+                                border: mine
+                                    ? null
+                                    : Border.all(color: Brand.surfaceHigh),
                                 borderRadius: BorderRadius.only(
                                   topLeft: const Radius.circular(16),
                                   topRight: const Radius.circular(16),
@@ -312,7 +315,11 @@ class _ChatScreenState extends State<ChatScreen> {
                                 mainAxisSize: MainAxisSize.min,
                                 children: [
                                   Text(m.body,
-                                      style: const TextStyle(fontSize: 15)),
+                                      style: TextStyle(
+                                          fontSize: 15,
+                                          color: mine
+                                              ? Colors.white
+                                              : Brand.text)),
                                   const SizedBox(height: 2),
                                   Row(
                                     mainAxisSize: MainAxisSize.min,

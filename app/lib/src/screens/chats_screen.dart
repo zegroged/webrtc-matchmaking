@@ -301,7 +301,7 @@ class _ChatsScreenState extends State<ChatsScreen>
                           maxLines: 1,
                           overflow: TextOverflow.ellipsis,
                           style: TextStyle(
-                            color: f.unread > 0 ? Colors.white : Brand.textDim,
+                            color: f.unread > 0 ? Brand.text : Brand.textDim,
                             fontWeight:
                                 f.unread > 0 ? FontWeight.w600 : FontWeight.w400,
                           ),

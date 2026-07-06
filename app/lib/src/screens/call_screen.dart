@@ -455,7 +455,8 @@ class _CallScreenState extends State<CallScreen> {
         if (!didPop && _ended) Navigator.of(context).pop(null);
       },
       child: Scaffold(
-        backgroundColor: Colors.black,
+        // Video arayüzü koyu; görüşme sonu kartı uygulamanın aydınlık temasında.
+        backgroundColor: _ended ? Brand.bg : Colors.black,
         body: _ended ? _endedView() : _callView(),
       ),
     );
@@ -471,7 +472,7 @@ class _CallScreenState extends State<CallScreen> {
               ? RTCVideoView(_remoteRenderer,
                   objectFit: RTCVideoViewObjectFit.RTCVideoViewObjectFitCover)
               : Container(
-                  color: Brand.bg,
+                  color: Brand.callDark,
                   child: Center(
                     child: Column(
                       mainAxisSize: MainAxisSize.min,
@@ -518,7 +519,7 @@ class _CallScreenState extends State<CallScreen> {
                       objectFit:
                           RTCVideoViewObjectFit.RTCVideoViewObjectFitCover)
                   : Container(
-                      color: Brand.surfaceHigh,
+                      color: Brand.callSurface,
                       child: const Icon(Icons.videocam_off_rounded,
                           color: Brand.textDim),
                     ),
@@ -550,7 +551,9 @@ class _CallScreenState extends State<CallScreen> {
                           child: Text(
                             '${peer.displayName}, ${peer.age}',
                             style: const TextStyle(
-                                fontWeight: FontWeight.w800, fontSize: 16),
+                                color: Colors.white,
+                                fontWeight: FontWeight.w800,
+                                fontSize: 16),
                             overflow: TextOverflow.ellipsis,
                           ),
                         ),
@@ -591,12 +594,15 @@ class _CallScreenState extends State<CallScreen> {
                       Flexible(
                         child: Text(widget.match.icebreaker,
                             style: const TextStyle(
-                                fontSize: 13, fontWeight: FontWeight.w600)),
+                                color: Colors.white,
+                                fontSize: 13,
+                                fontWeight: FontWeight.w600)),
                       ),
                       const SizedBox(width: 4),
                       GestureDetector(
                         onTap: () => setState(() => _showIcebreaker = false),
-                        child: const Icon(Icons.close_rounded, size: 18),
+                        child: const Icon(Icons.close_rounded,
+                            size: 18, color: Colors.white),
                       ),
                     ],
                   ),
@@ -611,7 +617,7 @@ class _CallScreenState extends State<CallScreen> {
                   ),
                   child: const Text(
                     'Kamera/mikrofon izni verilmedi. Ayarlardan izin verin.',
-                    style: TextStyle(fontSize: 12),
+                    style: TextStyle(fontSize: 12, color: Colors.white),
                   ),
                 ),
             ],
@@ -629,7 +635,7 @@ class _CallScreenState extends State<CallScreen> {
                 children: [
                   _roundBtn(
                     icon: _micOn ? Icons.mic_rounded : Icons.mic_off_rounded,
-                    color: _micOn ? Brand.surfaceHigh : Brand.danger,
+                    color: _micOn ? Brand.callSurface : Brand.danger,
                     onTap: _toggleMic,
                   ),
                   const SizedBox(width: 12),
@@ -637,13 +643,13 @@ class _CallScreenState extends State<CallScreen> {
                     icon: _camOn
                         ? Icons.videocam_rounded
                         : Icons.videocam_off_rounded,
-                    color: _camOn ? Brand.surfaceHigh : Brand.danger,
+                    color: _camOn ? Brand.callSurface : Brand.danger,
                     onTap: _toggleCam,
                   ),
                   const SizedBox(width: 12),
                   _roundBtn(
                     icon: Icons.cameraswitch_rounded,
-                    color: Brand.surfaceHigh,
+                    color: Brand.callSurface,
                     onTap: _switchCamera,
                   ),
                   const SizedBox(width: 12),
@@ -664,7 +670,7 @@ class _CallScreenState extends State<CallScreen> {
                       child: _actionBtn(
                         label: 'Geç',
                         icon: Icons.skip_next_rounded,
-                        color: Brand.surfaceHigh,
+                        color: Brand.callSurface,
                         onTap: _skip,
                       ),
                     ),
@@ -791,7 +797,9 @@ class _CallScreenState extends State<CallScreen> {
                 Text(reasonText,
                     textAlign: TextAlign.center,
                     style: const TextStyle(
-                        fontSize: 20, fontWeight: FontWeight.w800)),
+                        color: Brand.text,
+                        fontSize: 20,
+                        fontWeight: FontWeight.w800)),
                 const SizedBox(height: 8),
                 Text('Süre: ${_fmtDuration(_finalDuration)}',
                     textAlign: TextAlign.center,
