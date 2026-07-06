@@ -1,0 +1,21 @@
+{
+  "name": "projex-server",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Proje X - rastgele görüntülü sohbet + arkadaşlık backend",
+  "main": "src/index.js",
+  "scripts": {
+    "start": "node src/index.js",
+    "dev": "node --watch src/index.js",
+    "test": "node --test",
+    "e2e": "node test/e2e-sim.js"
+  },
+  "dependencies": {
+    "express": "^4.21.2",
+    "jsonwebtoken": "^9.0.2",
+    "socket.io": "^4.8.1"
+  },
+  "devDependencies": {
+    "socket.io-client": "^4.8.1"
+  }
+}

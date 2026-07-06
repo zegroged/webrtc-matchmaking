@@ -1,0 +1,152 @@
+<!DOCTYPE html>
+<html lang="tr">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Proje X — Yönetim Paneli</title>
+  <link rel="stylesheet" href="admin.css">
+</head>
+<body>
+
+  <!-- ==================== GİRİŞ EKRANI ==================== -->
+  <div id="login-screen" class="login-screen hidden">
+    <form id="login-form" class="login-card" autocomplete="on">
+      <div class="brand">
+        <span class="brand-dot"></span>
+        <span class="brand-name">Proje X</span>
+      </div>
+      <p class="login-subtitle">Yönetim Paneli</p>
+
+      <label for="login-username">Kullanıcı Adı</label>
+      <input id="login-username" type="text" autocomplete="username" required>
+
+      <label for="login-password">Şifre</label>
+      <input id="login-password" type="password" autocomplete="current-password" required>
+
+      <p id="login-error" class="login-error hidden" role="alert"></p>
+
+      <button id="login-submit" class="btn btn-primary btn-block" type="submit">Giriş Yap</button>
+    </form>
+  </div>
+
+  <!-- ==================== PANEL ==================== -->
+  <div id="panel" class="panel hidden">
+
+    <!-- Acil durdurma aktifken görünen kalıcı uyarı bandı -->
+    <div id="killswitch-banner" class="killswitch-banner hidden">
+      ⛔ ACİL DURDURMA AKTİF — yeni eşleşme yapılmıyor
+    </div>
+
+    <div class="panel-layout">
+
+      <!-- Sol dikey menü -->
+      <nav class="sidebar">
+        <div class="brand sidebar-brand">
+          <span class="brand-dot"></span>
+          <span class="brand-name">Proje X</span>
+        </div>
+
+        <div class="nav">
+          <button class="nav-item active" data-tab="dashboard" type="button">Genel Bakış</button>
+          <button class="nav-item" data-tab="reports" type="button">Rapor Kuyruğu</button>
+          <button class="nav-item" data-tab="users" type="button">Kullanıcılar</button>
+          <button class="nav-item" data-tab="bans" type="button">Banlar</button>
+        </div>
+
+        <div class="sidebar-footer">
+          <label class="killswitch-row" for="killswitch-toggle">
+            <span class="killswitch-label">Acil Durdurma</span>
+            <span class="switch">
+              <input type="checkbox" id="killswitch-toggle">
+              <span class="slider"></span>
+            </span>
+          </label>
+          <button id="logout-btn" class="btn btn-ghost btn-block" type="button">Çıkış</button>
+        </div>
+      </nav>
+
+      <!-- Sekme içerikleri -->
+      <main class="content">
+
+        <!-- A) GENEL BAKIŞ -->
+        <section id="tab-dashboard" class="tab">
+          <h2>Genel Bakış</h2>
+          <p class="tab-desc">Canlı sistem metrikleri — 10 saniyede bir otomatik yenilenir.</p>
+          <div id="dashboard-grid" class="metric-grid"></div>
+        </section>
+
+        <!-- B) RAPOR KUYRUĞU -->
+        <section id="tab-reports" class="tab hidden">
+          <h2>Rapor Kuyruğu</h2>
+          <div class="subtabs">
+            <button class="subtab active" data-status="pending" type="button">Bekleyen</button>
+            <button class="subtab" data-status="reviewed" type="button">İncelenen</button>
+          </div>
+          <div id="reports-list" class="reports-list"></div>
+        </section>
+
+        <!-- C) KULLANICILAR -->
+        <section id="tab-users" class="tab hidden">
+          <h2>Kullanıcılar</h2>
+          <input id="user-search" class="search-input" type="search"
+                 placeholder="İsim veya ID ile ara…" autocomplete="off">
+          <div class="table-wrap">
+            <table>
+              <thead>
+                <tr>
+                  <th>ID</th>
+                  <th>İsim</th>
+                  <th>Durum</th>
+                  <th>Çevrimiçi</th>
+                  <th>Güven Puanı</th>
+                  <th>Rapor Sayısı</th>
+                  <th>Kayıt Tarihi</th>
+                  <th>Aksiyonlar</th>
+                </tr>
+              </thead>
+              <tbody id="users-tbody"></tbody>
+            </table>
+          </div>
+        </section>
+
+        <!-- D) BANLAR -->
+        <section id="tab-bans" class="tab hidden">
+          <h2>Banlar</h2>
+          <div class="table-wrap">
+            <table>
+              <thead>
+                <tr>
+                  <th>Kullanıcı</th>
+                  <th>Sebep</th>
+                  <th>Bitiş</th>
+                  <th>Tarih</th>
+                </tr>
+              </thead>
+              <tbody id="bans-tbody"></tbody>
+            </table>
+          </div>
+        </section>
+
+      </main>
+    </div>
+  </div>
+
+  <!-- Kanıt görseli modalı (görsel Authorization başlığıyla blob olarak yüklenir) -->
+  <div id="modal-overlay" class="modal-overlay hidden">
+    <div class="modal" role="dialog" aria-modal="true" aria-label="Kanıt">
+      <div class="modal-head">
+        <span>Kanıt</span>
+        <button id="modal-close" class="modal-close" type="button" aria-label="Kapat">×</button>
+      </div>
+      <div class="modal-body">
+        <img id="modal-img" alt="Rapor kanıtı">
+      </div>
+    </div>
+  </div>
+
+  <!-- Toast bildirimleri (sağ alt) -->
+  <div id="toast-container" class="toast-container" aria-live="polite"></div>
+
+  <script src="admin.js"></script>
+</body>
+</html>
