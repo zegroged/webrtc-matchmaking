@@ -4,3 +4,10 @@ data/
 *.db-wal
 *.db-shm
 .env
+
+# --- Gelistirme araci artiklari ---
+.claude/
+CLAUDE.md
+AGENTS.md
+.cursor/
+.aider*
