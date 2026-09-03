@@ -1,254 +1,242 @@
-# Proje X — Rastgele Görüntülü Sohbet + Arkadaşlık
+# WebRTC Eşleştirme Motoru
 
-Omegle tarzı rastgele görüntülü eşleşme + karşılıklı onayla arkadaş ekleme ve kalıcı yazılı sohbet.
-Soruya dayalı akıllı eşleşme, sıkı güvenlik ve moderasyon. **Android, iOS ve Web** (bilgisayar dahil)
-tek kod tabanından çalışır.
+> Gerçek zamanlı bir eşleştirme motoru ve WebRTC sinyalleşme sunucusu; Android, iOS ve Web için Flutter istemcisiyle birlikte.
 
-Bu depo, geliştirme planındaki **Faz 1–3 çekirdeğinin** (görüntülü eşleşme + arkadaşlık + kalıcı
-mesajlaşma + moderasyon/admin) tam işleyen, test edilmiş uygulamasıdır.
+![Node.js 22.13+](https://img.shields.io/badge/Node.js-22.13%2B-339933?logo=node.js&logoColor=white)
+![Socket.IO](https://img.shields.io/badge/Socket.IO-4.8-010101?logo=socket.io&logoColor=white)
+![WebRTC](https://img.shields.io/badge/WebRTC-P2P-333333?logo=webrtc&logoColor=white)
+![Flutter](https://img.shields.io/badge/Flutter-Android%20%7C%20iOS%20%7C%20Web-02569B?logo=flutter&logoColor=white)
+![SQLite](https://img.shields.io/badge/node%3Asqlite-yerle%C5%9Fik-003B57?logo=sqlite&logoColor=white)
+![Testler](https://img.shields.io/badge/testler-27%20birim%20%2B%2050%20u%C3%A7tan%20uca-brightgreen)
+![Lisans](https://img.shields.io/badge/lisans-MIT-blue)
 
----
-
-## İçindekiler
-
-- [Mimari](#mimari)
-- [Hızlı başlangıç](#hızlı-başlangıç)
-- [Web'i çalıştırma (bilgisayar/tarayıcı)](#webi-çalıştırma)
-- [Android'i çalıştırma / APK](#androidi-çalıştırma)
-- [iOS'u çalıştırma (Mac gerekir)](#iosu-çalıştırma)
-- [Yönetim paneli](#yönetim-paneli)
-- [Test](#test)
-- [Üretime hazırlık (SMS, TURN, moderasyon, ölçek)](#üretime-hazırlık)
-- [Mağaza gönderim kontrol listesi](#mağaza-gönderim-kontrol-listesi)
-- [Proje yapısı](#proje-yapısı)
+[English README](README.md)
 
 ---
 
-## Mimari
+## Genel bakış
 
-| Katman | Teknoloji | Not |
-|--------|-----------|-----|
-| İstemci | **Flutter** (Android/iOS/Web) | Tek kod tabanı, koyu tema, Türkçe |
-| Görüntülü görüşme | **WebRTC** (`flutter_webrtc`) | P2P + STUN; TURN opsiyonel |
-| Gerçek zamanlı | **Socket.IO** | Eşleşme kuyruğu, sinyalleşme, canlı mesajlaşma |
-| Backend | **Node.js + Express** | Harici çalışma zamanı bağımlılığı minimum |
-| Veritabanı | **node:sqlite** (Node 22+ dahili) | Ayrı DB sunucusu kurmadan çalışır |
-| Moderasyon | Kendi metin filtresi + rapor/ban/güven puanı | Harici API entegrasyon noktaları hazır |
-| Yönetim paneli | Saf HTML/CSS/JS | `/admin` altında |
+Bu proje yabancıları kısa, uçtan uca (P2P) görüntülü aramalarda eşleştirir ve sonrasında iki tarafın da isterse kalıcı bir bağlantı kurmasına izin verir. İlginç olan kısım video değil — onu `flutter_webrtc` hallediyor — çevresindeki her şey: **kimin kiminle** konuşması gerektiğine karar vermek, birbirini hiç görmemiş iki istemci arasında WebRTC el sıkışmasını yürütmek ve bekleme havuzu küçükken sistemi kullanılabilir tutmak.
 
-> **Neden SQLite/tek süreç?** MVP'yi sıfır altyapı kurulumuyla çalıştırmak için. Plandaki
-> PostgreSQL + Redis'e geçiş noktaları kaynak kodda yorumlarla işaretlidir (`// Redis'e taşıma`,
-> matchmaking havuzu, presence, hız limitleri). Ölçek büyüdüğünde bu sınırlar aşılır.
+Kod tabanının gerçekte etrafında kurulduğu iki problem şu: **havuz açken eşleşme kalitesi** ve **kötüye kullananlara nasıl kaçacaklarını öğretmeyen moderasyon**. Naif bir eşleştirici ya bulduğu ilk iki kişiyi eşler (kalite sıfırdır) ya da mükemmel eşleşmeyi bekler (kimse hiç eşleşmez). Buradaki motor her aday çifti ağırlıklı bir ölçüte göre puanlar ve sonra *kullanıcı bekledikçe kabul eşiğini gevşetir*; böylece yoğun bir havuz iyi eşleşmeler alır, boş bir havuz yine de eşleşme alır. Moderasyon katmanı Türkçe metni bir dizi kaçınma numarasına karşı normalleştirir (leet ikamesi, aksan temizleme, ayraç serpme, karakter tekrarı) ve sonra, **tasarım gereği**, işaretlenen mesajı yine de iletir; engellemek yerine işareti kaydeder ve gönderenin güven puanını düşürür. Engellemek, saldırgana hangi kelimenin filtreye takıldığını tam olarak söyler.
+
+Arka uç tek bir Node.js süreci: REST için Express, eşleştirme kuyruğu ve sinyalleşme için Socket.IO, kalıcılık için `node:sqlite` (modern Node'a yerleşik). Yani sistemin tamamı `npm install && npm start` ile, harici bir veritabanı, aracı ya da konteyner olmadan çalışır. Flutter istemcisi Android, iOS ve Web'i hedefleyen tek bir kod tabanı. `/admin` altında düz HTML/CSS/JS bir yönetim paneli var: şikâyet kuyruğu, kullanıcı yönetimi ve bir acil durdurma anahtarı. **Bu bir teknik prototiptir — hiç yayınlanmadı ve kullanıcısı yok. Ondan başka bir anlam çıkarmadan önce [Bilinen sınırlamalar](#bilinen-sınırlamalar) bölümünü okuyun.**
 
 ---
 
-## Hızlı başlangıç
+## Teknoloji
 
-Gereksinimler: **Node.js 22+** ve **Flutter 3.35+** (Dart 3.9+).
+| Katman | Tercih | Neden |
+|---|---|---|
+| İstemci | Flutter (Dart 3.12) | Android, iOS ve Web için tek kod tabanı |
+| Video | `flutter_webrtc` 1.5 | P2P medya; varsayılan STUN, ortam değişkeniyle TURN |
+| Gerçek zaman | Socket.IO 4.8 | Kuyruk, sinyal aktarımı, sohbet, çevrimiçilik — ack geri çağrılarıyla |
+| Arka uç | Node.js 22.13+ / Express 4.21 | Asgari çalışma zamanı bağımlılığı (toplam 3 üretim paketi) |
+| Veritabanı | `node:sqlite` (`DatabaseSync`) | Kurulacak DB sunucusu yok; WAL kipi, yabancı anahtarlar açık |
+| Kimlik | `jsonwebtoken` 9 + SMS OTP | 30 günlük kullanıcı jetonu, 12 saatlik yönetici jetonu |
+| Yönetim arayüzü | Düz HTML/CSS/JS | Derleme adımı yok; `/admin` altından statik sunulur |
+
+Arka uç üretim bağımlılıkları: `express`, `socket.io`, `jsonwebtoken`. Listenin tamamı bu.
+
+**Boyut:** 12 modülde ~2.000 satır arka uç kaynağı, ~1.500 satır yönetim paneli, ~350 satır birim testi, ~280 satır uçtan uca simülasyon ve ~4.000 satır Dart (6 ekran, bir sekme kabuğu ve paylaşılan istemci tesisatı). Şema 11 SQLite tablosu; HTTP yüzeyi üç yönlendirici üzerinde 28 REST ucu.
+
+---
+
+## Özellikler
+
+**Eşleştirme (`server/src/matchmaking.js`)**
+- Sert kural vetolarıyla ağırlıklı çift puanlama (ortak dil yoksa ya da taraflardan biri ötekini engellediyse → çift cezalandırılmaz, **yasaklanır**)
+- Dört bekleme bandı boyunca kademeli eşik gevşemesi
+- En uzun bekleyen kullanıcı önce seçer, böylece kimse açlığa düşmez
+- Çift başına 5 dakikalık yeniden eşleşme bekleme süresi; atlamayla biten bir çift 24 saat daha puan cezası taşır (bellekte tutulur, yeniden başlatmada temizlenir)
+- Kuyruk girişini süreç genelinde durduran yönetici acil durdurma anahtarı
+
+**Sinyalleşme ve arama yaşam döngüsü (`server/src/sockets.js`)**
+- Socket.IO üzerinden SDP teklif/yanıt ve ICE adayı aktarımı, yalnız iki soketin ait olduğu eşleşmeyle sınırlı
+- ICE sunucu listesi `/api/rtc-config` adresinden sunulur (varsayılan iki Google STUN sunucusu, TURN ortamdan enjekte edilir)
+- `initiator` bayrağı sunucu tarafında belirlenir, böylece teklifi tam olarak bir taraf oluşturur
+- Eşleşme bitiş sebepleri süreyle birlikte izlenir (`skip` / `leave` / `report` / `disconnect`)
+- Hesap başına tek etkin soket; ikinci bir giriş, birincisini `session:replaced` ile düşürür
+- Uzak açıklama ayarlanana kadar istemci tarafında ICE adayı tamponlama
+
+**Bağlantılar ve sohbet**
+- Karşılıklı rıza: arkadaşlık yalnız **iki taraf da** eklemeye dokunduğunda kurulur. Tek taraflı bir istek arama ekranında hiç gösterilmez — sonradan bir gelen kutusunda belirir, böylece kimse o anda baskı hissetmez
+- Arama bittikten sonra birini eklemek için 90 saniyelik pencere
+- Okundu bilgisi, çevrimiçilik ve 5 saniyede 10 mesaj hız sınırıyla kalıcı birebir mesajlaşma
+- Bir isteği reddetmek sessizdir — gönderene hiçbir zaman söylenmez
+
+**Moderasyon (`server/src/moderation.js`)**
+- Çok aşamalı normalleştirmeyle Türkçe + İngilizce metin filtresi
+- Şikâyetler; şikâyet anında canlı video izinden yakalanan isteğe bağlı bir kanıt karesi ve mesaj şikâyetleri için bir sohbet alıntısıyla
+- Otomatik askıya alma: 24 saat içinde **3 farklı** kullanıcıdan 3 şikâyet → 48 saat askı
+- Şikâyetler, işaretlenen mesajlar ve arama telemetrisiyle sürülen güven puanı (0–100)
+- Şikâyet tekilleştirme: bir kullanıcı tekrar tekrar şikâyet ederek bir başkasının güven puanını boşaltamaz
+
+**Yönetim paneli (`server/public/admin/`)**
+- Gösterge paneli: çevrimiçi / kuyrukta / aramada sayıları, 24 saatlik eşleşme hacmi, ortalama süre, atlama oranı, karşılıklı ekleme oranı, bekleyen şikâyetler, 24 saatlik mesaj ve işaretli mesaj sayıları
+- Kanıt görüntüleyicili şikâyet kuyruğu; yok say / uyar / askıya al / yasakla eylemleri
+- Kullanıcı arama, yasaklı listesi ve acil durdurma anahtarı
+
+**Hesap ve güvenlik tesisatı**
+- SMS OTP ile kayıt (6 hane, 5 dakika ömür, 5 deneme, 30 saniye yeniden gönderme bekleme süresi)
+- Kayıtta 18+ kapısı; doğum tarihi kayıttan sonra değiştirilemez
+- Yasaklar telefon özetine bağlıdır, böylece yasaklı bir numara öylece yeniden kaydolamaz
+- Uygulama içi engelleme (arkadaşlığı siler ve gelecekteki eşleşmeleri kalıcı olarak veto eder)
+- Uygulama içi hesap silme (işlemsel temizlik + mezar taşı kaydı + soket düşürme)
+
+---
+
+## Mimari / tasarım notları
+
+### Kademeli eşik gevşemesi
+
+`Matchmaker.tick()` saniyede bir çalışır. Bekleyen her kullanıcı için diğer bütün adayları puanlar, en iyisini tutar ve sonra o puanı **çiftin ne kadar beklediğinden** türetilen bir eşikle karşılaştırır:
+
+```js
+MATCH_THRESHOLDS: [
+  { maxWaitMs:  5000, minScore:   60 },
+  { maxWaitMs: 15000, minScore:   30 },
+  { maxWaitMs: 30000, minScore:    0 },
+  { maxWaitMs: Infinity, minScore: -200 },
+]
+```
+
+Puanlama şöyle: aynı sohbet ruh hâli için `+50`, her ortak ilgi alanı için `+15`, yaş yakınlığı için `+max(0, 10 - yaşFarkı)`, bu çift daha önce atlamayla bittiyse `-30`, 5 dakikalık yeniden eşleşme bekleme süresi içindelerse `-100` ve ortalama güven puanları 50'nin altındaysa `-10`.
+
+Son `-200` bandı taşıyıcı karardır. Anlamı şu: 30 saniyeden sonra `-100`'lük bekleme cezası bile aşılabilir hâle gelir — çünkü dört kişilik bir havuzda kimseyi yeniden eşleştirmemek, hiç kimseyi eşleştirmemek demektir. **Sert kurallar her bandı sağ atlatır**: ortak dil yoksa ya da taraflardan biri ötekini engellemişse `scorePair` düşük bir puan değil `null` döndürür ve `null` hiçbir eşikte eşleşemez. Yumuşak tercihler baskı altında erir; güvenlik kısıtları erimez. "Ceza" ile "veto" arasındaki bu ayrım modülün çekirdeğidir.
+
+### İşaretlemek engellemekten iyidir
+
+`checkText()` beş normalleştirme adımı uygular (Türkçe büyük-küçük harf katlama, aksan temizleme, leet ikamesi, ayraç temizleme ve karakter tekrarı sıkıştırma) ve kelime listesini ortaya çıkan her varyantla eşleştirir. Böylece `s.i.k.t.i.r`, `S1KT1R` ve `siktiiiir` aynı belirtece iner.
+
+Türkçe harf katlama adımı özellikle gösterilmeye değer:
+
+```js
+// 'İ'.toLowerCase() 'i' + U+0307 uretir, bu yuzden Turkce I/İ once elle eslenir.
+let t = String(text).replace(/İ/g, 'i').replace(/I/g, 'i').toLowerCase();
+t = t.replace(/ı/g, 'i');
+```
+
+JavaScript'in `toLowerCase()` fonksiyonu `İ` (U+0130) harfini `i` ve ardından birleşen bir üst nokta (U+0307) olarak ayrıştırır. Aşağıdaki herhangi bir karşılaştırma düz bir `i` ile yapıldığında sessizce başarısız olur ve filtre sızdırır. Açık ön eşleme bunu kapatır.
+
+Davranışsal karar, dizge işlemeden daha önemli: işaretlenen bir mesaj **yine de iletilir**. Sunucu `flagged = 1` yazar ve gönderenden 2 güven puanı düşer. Mesajı reddetmek, filtreyi bir kâhine çevirirdi — gönder, reddi gözle, ayarla, tekrarla; ta ki geçen bir yazım bulana kadar. Sessiz işaretleme saldırgana hiçbir sinyal vermezken yönetim kuyruğunun üzerinde çalıştığı kanıt izini yine de biriktirir.
+
+### Biriken telemetri olarak güven puanı
+
+Güven bir moderasyon hükmü değil; *eşleştirmeye geri besleyen* akan bir sinyaldir. Yalnız şikâyetlerle değil, olağan kullanımla da hareket eder: 5 saniye içinde atlanmak, atlanan kullanıcıya 1 puana mal olur; 2 dakikayı aşan bir arama iki tarafa da 1 puan kazandırır; işaretlenen bir mesaj 2, bir şikâyet 5, otomatik askıya alma 15 puana mal olur; bir yöneticinin reddettiği şikâyet ise suçlanana 5 puan iade eder. Çift ortalaması 50'nin altına düştüğünde `scorePair` 10 puan düşer — düşük güvenli kullanıcılar yasaklanmak yerine önceliksizleştirilir; bu, muhtemel kötü aktörlerin deneyimini sert ve itiraz edilebilir bir karar olmadan bozar.
+
+### Sağlayıcı dikişleri
+
+Satıcı hesabı gerektirecek her entegrasyon tek bir fonksiyonun arkasına alınmıştır, böylece sistem hesap olmadan uçtan uca çalışır:
+
+- `sms.js` tek bir `sendSms()` sunar. `dev` kipinde göndermek yerine loglar ve OTP, API yanıtında `devCode` olarak döner — otomatik uçtan uca koşumu mümkün kılan da budur.
+- ICE sunucuları `config.js` içinde kurulur; TURN eklemek üç ortam değişkeni, sıfır kod değişikliği demektir ve istemciler sonucu sabit kodlamak yerine çalışma anında çeker.
+- Metin filtresinde harici bir moderasyon API'si için işaretlenmiş bir genişletme noktası var.
+
+### Anılmaya değer arıza kipi işlemleri
+
+Birkaç küçük karar, eşzamanlılık ya da düşmanca girdi altında neyin bozulacağını düşünmekten çıktı:
+
+- **Eşleşme oluşturma, kuyruk ortasındaki kopmalara karşı korumalı.** Soketlerden biri kuyruğa alınmayla eşleştirilme arasında kaybolduysa `onMatch`, yarı ölü bir eşleşme yaratmak yerine sağ kalanı kuyruğa geri koyar.
+- **Sohbet alıntıları asla JSON olarak kesilmez.** Her mesaj gövdesi `JSON.stringify` işleminden **önce** sınırlanır, çünkü serileştirilmiş bir dizgeyi dilimlemek geçersiz JSON üretir — ve tam bu durum için bir regresyon testi vardır.
+- **Bir şikâyet yalnız bir kez sonuçlandırılabilir.** `/reports/:id/resolve`, zaten incelenmiş bir şikâyette `409` döner; böylece aynı anda tıklayan iki yönetici çelişen eylemler uygulayamaz. "Askıya al" eylemi ayrıca `AND status != 'banned'` ile korunur, dolayısıyla bir yasağı sessizce aşağı çekemez.
+- **Avatar yüklemeleri beyan edilen türe göre değil, sihirli baytlara göre doğrulanır** ve RIFF dalı ayrıca 8. konumda `WEBP` imzasını şart koşar — aksi hâlde her WAV ve AVI dosyası görsel olarak geçerdi.
+- **Kanıt dosyaları yalnız yöneticiye açıktır** ve dosya adı, yol geçişini engellemek için `path.basename()` içinden geçirilir.
+- **Telefon numaraları hiçbir zaman düz metin saklanmaz** — yalnız bir SHA-256 özeti, ki yasaklar da ona bağlıdır.
+- **Şema göçleri eklemelidir** ve bir `ensureColumn()` yardımcısıyla uygulanır, çünkü `CREATE TABLE IF NOT EXISTS` zaten var olan bir tabloyu değiştirmez.
+
+### Tercihen tek süreç, dikişleri işaretlenmiş hâlde
+
+Ölçekte Redis'te yaşayacak durum — bekleme havuzu, çevrimiçilik, etkin eşleşmeler, sohbet hız sınırları — `Map` yapılarında duruyor. Bu bilinçli bir takas: prototipi çalıştırmak için sıfır altyapı, karşılığında yatay ölçeklenememe. Geçiş noktaları, değişmesi gereken yerlerde kaynakta işaretlenmiştir.
+
+---
+
+## Başlarken
+
+**Gereksinimler:** Node.js 22.13+ ya da 24+, ve Dart 3.12+ taşıyan bir Flutter sürümü (`app/pubspec.yaml` içinde `sdk: ^3.12.1`). Sürüm tabanının sebebi `node:sqlite`: Node 22.5 öncesinde yoktur ve 22.5–22.12 sürümlerinde `npm start` komutunun geçirmediği bir `--experimental-sqlite` bayrağı ister.
 
 ```bash
-# 1) Backend'i başlat
+# Arka uç
 cd server
 npm install
-npm start
-# -> http://localhost:3000  (yönetim paneli: /admin)
-# İlk çalıştırmada admin şifresi konsola ve data/ADMIN_BILGILERI.txt dosyasına yazılır.
+npm start          # http://localhost:3000  — yönetim paneli /admin altında
 ```
 
-Backend `dev` OTP modunda başlar: **SMS gönderilmez**, doğrulama kodu API yanıtında `devCode`
-olarak döner ve onboarding ekranında görünür. Böylece SMS sağlayıcısı olmadan uçtan uca test
-edebilirsiniz.
-
----
-
-## Web'i çalıştırma
-
-Web istemcisi backend tarafından servis edilir; tek sunucu her şeyi karşılar.
+Sunucu `dev` OTP kipinde başlar: SMS gönderilmez ve doğrulama kodu API yanıtında `devCode` olarak döner. İlk çalıştırmada bir yönetici parolası üretip `data/ADMIN_BILGILERI.txt` dosyasına, bir JWT anahtarı da `data/.jwt-secret` dosyasına yazar (`data/` dizininin tamamı gitignore'dadır).
 
 ```bash
+# Web istemcisi — aynı sunucuya derlenir, yani tek süreç her şeyi sunar
 cd app
-flutter build web --release      # app/build/web üretir
-cd ../server
-npm start
-# Tarayıcıda aç: http://localhost:3000
-```
+flutter build web --release
+cd ../server && npm start        # http://localhost:3000 adresini aç
 
-Geliştirme sırasında canlı yeniden yükleme için ayrı çalıştırma:
-
-```bash
+# Android
 cd app
-flutter run -d chrome            # backend ayrı bir terminalde çalışıyor olmalı
-```
+flutter run                       # emülatör ana makineye varsayılan olarak 10.0.2.2:3000 ile ulaşır
+flutter build apk --release
 
-> **Not:** Tarayıcıda kamera/mikrofon erişimi için `localhost` veya HTTPS gerekir (tarayıcı
-> güvenlik kuralı). LAN IP ile test edecekseniz üretimde TLS kullanın.
-
----
-
-## Android'i çalıştırma
-
-```bash
+# iOS (macOS + Xcode gerekir)
 cd app
-flutter run                      # bağlı cihaz/emülatörde çalışır
-# veya release APK:
-flutter build apk --release      # app/build/app/outputs/flutter-apk/app-release.apk
+flutter build ios --release
 ```
 
-- Kamera, mikrofon ve internet izinleri `AndroidManifest.xml`'de tanımlıdır.
-- **Emülatör** host makinedeki backend'e `http://10.0.2.2:3000` ile ulaşır (varsayılan).
-- **Gerçek cihaz**: onboarding ekranındaki "Sunucu adresi (geliştirici)" alanına
-  bilgisayarınızın LAN IP'sini girin (ör. `http://192.168.1.20:3000`). Adres cihazda saklanır.
-- `usesCleartextTraffic="true"` yalnızca geliştirme kolaylığı içindir; üretimde HTTPS'e geçip
-  bunu kaldırın.
-
-Play Store için App Bundle: `flutter build appbundle --release`.
-
----
-
-## iOS'u çalıştırma
-
-iOS derlemesi **macOS + Xcode** gerektirir (Windows'ta yapılamaz). Kod ve izinler hazırdır:
+Fiziksel bir Android cihazda, açılış ekranındaki "sunucu adresi" alanına makinenin yerel ağ adresini gir; değer `SharedPreferences` içinde saklanır. Tarayıcılar kamera ve mikrofon erişimini yalnız `localhost` ya da HTTPS üzerinden verir.
 
 ```bash
-cd app
-flutter build ios --release      # veya: flutter run -d <iphone>
-```
-
-- Kamera/mikrofon açıklamaları `ios/Runner/Info.plist`'te tanımlı.
-- App Store için: Xcode'da imzalama profili seçin, `flutter build ipa` ile arşivleyin.
-
----
-
-## Yönetim paneli
-
-`http://localhost:3000/admin` — koyu temalı, Türkçe.
-
-- **Giriş bilgileri**: ilk çalıştırmada üretilir, `server/data/ADMIN_BILGILERI.txt` dosyasına yazılır.
-- **Genel Bakış**: çevrimiçi/kuyruk/aktif görüşme, eşleşme sayısı, ortalama süre, geçme oranı,
-  **karşılıklı ekleme oranı** (kuzey yıldızı metriği), bekleyen rapor, mesaj/filtrelenen mesaj.
-- **Rapor Kuyruğu**: kategori, kanıt karesi (modal), sohbet dökümü; Reddet/Uyar/Askıya Al/Banla.
-- **Kullanıcılar**: isim veya ID ile arama, durum, güven puanı, ban/askı yönetimi.
-- **Banlar**: aktif ban listesi.
-- **Acil Durdurma**: tüm eşleşmeyi anında durduran anahtar (kriz senaryosu).
-
-Demo verisi yüklemek için (sunucu çalışırken):
-
-```bash
+# Testler
 cd server
-npm run seed     # 3 kullanıcı, eşleşme, arkadaşlık, mesaj (biri filtreli), rapor + kanıt
-```
+npm test           # 27 birim testi (eşleştirme, moderasyon, şikâyetler, şema göçü)
+npm run e2e        # 50 doğrulama: sunucuyu başlatır, üç simüle kullanıcıyı uçtan uca sürer
+npm run seed       # yönetim paneli için demo veri
 
----
-
-## Test
-
-```bash
-cd server
-npm test         # birim testleri (eşleşme motoru + moderasyon), 24 test
-npm run e2e      # uçtan uca simülasyon: 2 sahte kullanıcı, tam akış, 35 kontrol
-```
-
-```bash
 cd app
-flutter analyze  # statik analiz (0 sorun)
-flutter test     # widget testi
+flutter analyze
+flutter test
 ```
 
-E2E simülasyonu şunları doğrular: kayıt (18+ kontrolü, doğum tarihi kilidi) → eşleşme →
-WebRTC sinyal takası → karşılıklı arkadaş ekleme (tek taraflı istek sızmaz) → kalıcı mesajlaşma
-(küfür filtresi) → raporlama + kanıt karesi → engelleme → yönetici API + acil durdurma.
+Uçtan uca simülasyon şunları kapsar: kayıt (18 yaş altı reddi dahil), eşleştirme, WebRTC sinyal alışverişi, karşılıklı arkadaş ekleme, küfür filtresiyle kalıcı mesajlaşma, avatar yükleme ve görsel olmayan verinin reddi, kanıt kareli şikâyet, engelleme ve acil durdurma anahtarı dahil tüm yönetim API'si.
+
+### Yapılandırma
+
+Kopyalanacak bir `.env` dosyası yok — her şey, `server/src/config.js` içinde çalışan varsayılanlarıyla ortam değişkenlerinden okunur:
+
+| Değişken | Varsayılan | Amaç |
+|---|---|---|
+| `PORT` | `3000` | HTTP portu |
+| `PROJEX_DATA_DIR` | `<depo>/data` | SQLite veritabanı, kanıt kareleri, avatarlar, sırlar |
+| `PROJEX_DB_FILE` | `<veri dizini>/projex.db` | Veri dizininin dışında durması gerekiyorsa SQLite dosya konumu |
+| `PROJEX_OTP_MODE` | `dev` | `production`, `sms.js` içinde gerçek bir SMS sağlayıcısı ister |
+| `PROJEX_PHONE_SALT` | yerleşik sabit | Gerçek bir dağıtımda **mutlaka değiştirilmeli** |
+| `PROJEX_TURN_URL` / `_USER` / `_PASS` | tanımsız | TURN aktarımı; onsuz simetrik NAT arkasındaki kullanıcılar bağlanamaz |
 
 ---
 
-## Üretime hazırlık
+## Bilinen sınırlamalar
 
-Uygulama fonksiyonel olarak eksiksiz; canlıya almadan önce entegrasyon noktaları:
+Bunlar gerçek boşluklar; kimse kaynağı okuyarak keşfetmek zorunda kalmasın diye listelendi.
 
-### 1. SMS doğrulama
-`server/src/sms.js` içindeki `sendSms` fonksiyonunu doldurun (Netgsm/Twilio örneği yorumda).
-Sonra ortam değişkeni: `PROJEX_OTP_MODE=production`.
-
-### 2. TURN sunucusu (NAT arkasındaki kullanıcılar için zorunlu)
-`coturn` kurun ve ortam değişkenlerini verin:
-```bash
-PROJEX_TURN_URL=turn:turn.alanadiniz.com:3478
-PROJEX_TURN_USER=kullanici
-PROJEX_TURN_PASS=parola
-```
-Sunucu bunları `/api/rtc-config` üzerinden istemcilere dağıtır. STUN zaten yapılandırılıdır.
-
-### 3. Görüntü moderasyonu (plan §3)
-Cihaz üstü NSFW ön filtre + şüpheli karelerin buluta gönderimi. `call_screen.dart`'taki
-`_captureSnapshot` kare yakalamayı zaten yapıyor; periyodik örnekleme + Hive/Rekognition/Sightengine
-çağrısı eklenecek nokta burasıdır. Sunucuda `moderation.js` içindeki `checkText`'e harici metin
-moderasyon API'si (OpenAI Moderation / Perspective) eklenebilir.
-
-### 4. Push bildirim
-Çevrimdışı kullanıcıya mesaj gelince FCM/APNs push. Gönderim noktası `sockets.js` `chat:send`
-handler'ında yorumla işaretli.
-
-### 5. Ölçek (PostgreSQL + Redis)
-- Eşleşme havuzu, presence, hız limitleri → Redis (kaynak kodda `// Redis'e taşıma` noktaları).
-- Kalıcı veri → PostgreSQL (şema `db.js` ile birebir uyumlu).
-- Çoklu süreç için WebRTC sinyalleşmede Socket.IO Redis adapter.
-
-### 6. Güvenlik sertleştirme
-- HTTPS/WSS zorunlu (reverse proxy: Caddy/Nginx).
-- Android'de `usesCleartextTraffic` kaldır, iOS'ta `NSAllowsArbitraryLoads` kaldır.
-- JWT gizli anahtarı `data/.jwt-secret`'ta üretilir; üretimde gizli yönetimine taşıyın.
+- **Görsel ya da video moderasyonu yok. Kodun üretime hazır olmamasının sebebi budur.** Filtre yalnız metindir. Canlı video akışını hiçbir şey incelemez — cihaz üstü NSFW ön filtresi yok, bulut görüntü API'si yok, periyodik kare örneklemesi yok. İstemci bir kare yakalayabilir (`call_screen.dart` içinde `_captureSnapshot`), ama bu yalnız bir kullanıcı şikâyet ettiğinde çalışır. Otomatik video moderasyonu olmayan rastgele bir görüntülü eşleştirme servisi işletilmemelidir ve bu da işletilmiyor.
+- **Yaş kapısı beyana dayalıdır.** Kayıt, doğum tarihine göre 18 yaş altını reddeder ve tarih sonradan kilitlenir, ama bunu hiçbir şey doğrulamaz. Tek gerçek kimlik sinyali telefon numarası sahipliğidir.
+- **Küfür listesi elle bakılan küçük bir kelime listesidir.** Normalleştirici mekanik gizlemeyi bozar, yeni kelime dağarcığını değil; ayrıca alt dizge eşleştirmenin olağan yanlış-pozitif riskini taşır. Gerçek bir dağıtım, işaretlenmiş genişletme noktasının arkasına harici bir moderasyon API'si ister.
+- **Yalnızca tek süreç.** Eşleştirme havuzu, çevrimiçilik tablosu, etkin eşleşme kaydı ve hız sınırlayıcılar bellek içi `Map` yapılarıdır ve bir Socket.IO Redis adaptörü yoktur. İki örnek çalıştırmak eşleştirme havuzunu böler ve sinyalleşmeyi bozar. SQLite yazmaları eşzamanlıdır ve olay döngüsünde sıraya girer.
+- **SMS sağlayıcısı bir stub.** `sendSms()`, bir entegrasyon doldurulana kadar üretim kipinde hata fırlatır. `dev` yedeği OTP'yi HTTP yanıtında döndürür; bu test için uygun, yayınlanırsa kritik bir açıktır.
+- **Telefon özetleme, uygulama genelinde tek bir sabit tuz kullanır.** Özet dolayısıyla tüm kullanıcılarda belirlenimlidir; veritabanı ve tuz elde olduğunda telefon numarası uzayı numaralandırılabilecek kadar küçüktür. Gerçek bir dağıtım, anahtarı veritabanının dışında tutulan bir HMAC ister.
+- **Push bildirimi yok.** Çevrimdışı bir kullanıcıya giden mesajlar saklanır ama uygulama yeniden bağlanana kadar iletilmez. FCM/APNs bağlanma noktası `chat:send` işleyicisinde işaretlidir.
+- **Arayüz yalnız Türkçe.** Metinler widget'lara gömülüdür; ARB/l10n kurulumu yoktur ve `en` desteklenen diller arasında listelenmesine rağmen uygulama yereli `tr` olarak sabitlenmiştir.
+- **İstemci test kapsamı ince.** Dart tarafında tek bir widget testi var. Anlamlı test kapsamının tamamı — 27 birim testi ve 50 uçtan uca doğrulama — arka uçtadır.
+- **Geliştirme kipi taşıma ayarları hâlâ açık.** Android'de `usesCleartextTraffic="true"` ayarlı ve sunucu düz HTTP sunuyor; gerçek bir dağıtımdan önce ikisi de değişmeli.
+- **Kanıt kareleri yerel diskte şifresiz saklanır**, saklama politikası ya da otomatik süre sonu yoktur.
 
 ---
 
-## Mağaza gönderim kontrol listesi
+## Durum
 
-Apple'ın UGC (kullanıcı üretimli içerik) kuralı 1.2 — reddedilmenin 1 numaralı sebebi. Bu
-uygulamada hepsi **hazır**:
+Teknik prototip. **Hiç yayınlanmadı, sıfır kullanıcı, üretim dağıtımı yok.** Düzgün çözmek istediğim iki problemi çalışmak için yapıldı — aç bir havuzda eşleştirme ve kaçınmaya direnen metin moderasyonu — ve orada durdu; çünkü rastgele bir görüntülü eşleştirme ürününü sorumlu biçimde yayınlamak otomatik video moderasyonu ve gerçek yaş doğrulaması gerektirir, ben de ikisini de iyi yapacak durumda değildim.
 
-- [x] **Uygulama içi raporlama** — görüşme ve sohbet ekranlarında görünür ve çalışır.
-- [x] **Engelleme** — arkadaşlık silinir, bir daha eşleşemez ve yazamaz.
-- [x] **Hesap silme uygulama içinden erişilebilir** — Profil → "Hesabı kalıcı olarak sil".
-- [x] **18+ yaş kapısı** — kayıtta reddedilir; doğum tarihi kilitli.
-- [x] **Moderasyon mekanizması** — otomatik askı, güven puanı, admin kuyruğu, acil durdurma.
-- [ ] **17+/18+ içerik derecelendirmesi** — mağaza konsolunda ayarlayın.
-- [ ] **Gizlilik Politikası + Kullanım Koşulları URL'si** — KVKK uyumlu metin hazırlayıp bağlayın.
-- [ ] **Play Data Safety / Apple Privacy Nutrition formları** — konsolda doldurun.
-- [ ] **Demo hesap + inceleme ekibi için test talimatı** — `npm run seed` ile hazır veri.
-
-İnceleme notuna eklenecek moderasyon açıklaması taslağı `server/src` moderasyon kodundadır.
+Bir referans uygulaması olarak yayımlanıyor. Okunmaya değer kısımlar `matchmaking.js` ve `moderation.js`; geri kalanı, onları uçtan uca test edilebilir kılan çevre sistemdir. Yukarıda iddia edilen her şey kaynakta doğrulanabilir ve test takımları harici servis olmadan çevrimdışı çalışır.
 
 ---
 
-## Proje yapısı
+## Lisans
 
-```
-omeglev2/
-├─ server/                    Node.js backend + admin paneli
-│  ├─ src/
-│  │  ├─ index.js             Express + Socket.IO giriş noktası
-│  │  ├─ config.js            Tüm ayarlar (eşleşme eşikleri, moderasyon, ICE)
-│  │  ├─ db.js                node:sqlite şema + admin hesabı
-│  │  ├─ auth.js              SMS OTP kayıt/giriş, JWT
-│  │  ├─ api.js               REST: profil, arkadaşlar, mesajlar, engelleme
-│  │  ├─ sockets.js           Eşleşme kuyruğu, WebRTC sinyal, canlı sohbet
-│  │  ├─ matchmaking.js       Ağırlıklı puanlama + kademeli eşik gevşetme
-│  │  ├─ moderation.js        Küfür filtresi, rapor, ban, güven puanı
-│  │  ├─ admin.js             Yönetim API'si
-│  │  ├─ icebreakers.js       Moda göre buzkıran soruları
-│  │  └─ sms.js               SMS sağlayıcı soyutlaması
-│  ├─ public/admin/           Yönetim paneli arayüzü (HTML/CSS/JS)
-│  ├─ test/                   Birim testleri (node --test)
-│  └─ tools/                  e2e simülasyonu + demo seed
-├─ app/                       Flutter istemcisi (Android/iOS/Web)
-│  └─ lib/
-│     ├─ main.dart
-│     └─ src/
-│        ├─ config.dart, theme.dart, models.dart
-│        ├─ api_client.dart, session.dart, socket_service.dart
-│        └─ screens/          onboarding, discover, call, chats, chat, profile
-└─ README.md
-```
-
----
-
-Bu proje, geliştirme planındaki en riskli iki teknik belirsizliği (eşleşme motoru + WebRTC/TURN
-sinyalleşme) çözülmüş, uçtan uca test edilmiş bir çekirdek olarak teslim edilmiştir.
+MIT — bkz. [LICENSE](LICENSE).
