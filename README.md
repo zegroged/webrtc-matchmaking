@@ -14,6 +14,8 @@
 
 ---
 
+**How this was built:** the code was written with AI assistance and reviewed by the author.
+
 ## Overview
 
 This project pairs strangers into short peer-to-peer video calls and lets both sides opt into a

@@ -14,6 +14,8 @@
 
 ---
 
+**Nasıl yazıldı:** kod yapay zekâ yardımıyla yazıldı ve yazar tarafından gözden geçirildi.
+
 ## Genel bakış
 
 Bu proje yabancıları kısa, uçtan uca (P2P) görüntülü aramalarda eşleştirir ve sonrasında iki tarafın da isterse kalıcı bir bağlantı kurmasına izin verir. İlginç olan kısım video değil — onu `flutter_webrtc` hallediyor — çevresindeki her şey: **kimin kiminle** konuşması gerektiğine karar vermek, birbirini hiç görmemiş iki istemci arasında WebRTC el sıkışmasını yürütmek ve bekleme havuzu küçükken sistemi kullanılabilir tutmak.
