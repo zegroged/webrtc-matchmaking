@@ -2,6 +2,7 @@
 
 > A real-time matchmaking engine and WebRTC signaling server, with a Flutter client for Android, iOS and Web.
 
+[![tests](https://github.com/zegroged/webrtc-matchmaking/actions/workflows/test.yml/badge.svg)](https://github.com/zegroged/webrtc-matchmaking/actions/workflows/test.yml)
 ![Node.js 22.13+](https://img.shields.io/badge/Node.js-22.13%2B-339933?logo=node.js&logoColor=white)
 ![Socket.IO](https://img.shields.io/badge/Socket.IO-4.8-010101?logo=socket.io&logoColor=white)
 ![WebRTC](https://img.shields.io/badge/WebRTC-P2P-333333?logo=webrtc&logoColor=white)
